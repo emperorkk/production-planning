@@ -214,7 +214,7 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
    - Colons inside SQL string literals are rewritten as `'+CHAR(58)+'` (Soft1 treats `:x` as a param marker).
    - `SaveSchedule` builds both UPDATEs server-side (dates via `DATEADD(MINUTE, n, 'YYYYMMDD')`), skips `MTRSTS=1`, checks `SOSOURCE=5171` + company.
    - The built-in `SqlData` service is NOT used (it only runs stored SQL by name).
-4. **Optional:** `npx wrangler secret put SOFT1_APP_ID` if the default `703` isn't right for Vlachos Bros.
+4. ~~**appId**~~ DONE — `SOFT1_APP_ID = 1199` in `wrangler.jsonc` vars
 5. **Test the login flow end-to-end** — the exact field names returned by `/login` / `/authenticate` may vary per Soft1 version. The client in `worker/soft1-client.js` assumes the standard shape; adjust if needed.
 
 ### Known limitations / future work

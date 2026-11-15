@@ -67,7 +67,7 @@ scripts/sync-to-softone.mjs       ← LEGACY: copies legacy/embedded/ → C:\Sof
 3. Set the Soft1 endpoint and any secrets:
    ```bash
    # Edit wrangler.jsonc → vars.SOFT1_API_URL to your S1Services URL
-   npx wrangler secret put SOFT1_APP_ID        # Soft1 appId (default 703)
+   # and vars.SOFT1_APP_ID to the Soft1 web-services appId (Vlachos Bros: 1199)
    ```
 
 4. In Soft1, create the AJS web service **Foxline.planning** from `soft1/Foxline.planning.js`.

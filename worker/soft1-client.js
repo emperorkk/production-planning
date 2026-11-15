@@ -37,12 +37,14 @@ async function callService(env, body) {
  * the UI can hide features the user cannot reach.
  */
 export async function loginAndAuthenticate(env, { username, password, company, branch }) {
+  if (!env.SOFT1_APP_ID) throw new Error('SOFT1_APP_ID is not configured');
+
   // Step 1 — login (returns a temporary clientID + list of companies)
   const login = await callService(env, {
     service:  'login',
     username,
     password,
-    appId:    env.SOFT1_APP_ID || '703'   // Soft1 default appId is 703
+    appId:    env.SOFT1_APP_ID            // set in wrangler.jsonc vars
   });
   const tempClientID = login.clientID;
   if (!tempClientID) throw new Error('Login succeeded but no clientID returned');

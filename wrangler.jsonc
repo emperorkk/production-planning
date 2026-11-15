@@ -31,10 +31,10 @@
     }
   ],
 
-  // Non-secret config. Optional secret (only if appId != 703):
-  //   wrangler secret put SOFT1_APP_ID
+  // Non-secret config.
   "vars": {
     "SOFT1_API_URL": "https://01104398142024.oncloud.gr/s1services",
+    "SOFT1_APP_ID":  "1199",
     // Empty = fall back to the first company/branch returned by Soft1 /login
     "SOFT1_COMPANY": "",
     "SOFT1_BRANCH":  "",
