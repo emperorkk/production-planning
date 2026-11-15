@@ -10,7 +10,7 @@
 //   GetMachines                                   RSRC machines + speed/setup/wait
 //   GetPhaseMachines                              SPCOSTGROUP phase ↔ machine + phase name
 //   GetOrdersInWeek       weekStart, weekEnd      orders whose DATE01/DATE02 fall in the week
-//   GetUnscheduledOrders  offset, pageSize        open orders with DATE01 IS NULL, paged
+//   GetUnscheduledOrders  offset, pageSize(≤2000) open orders with DATE01 IS NULL, paged
 //   GetProductionOrders   weekStart, weekEnd      open orders + completed in the week (full load)
 //   GetShifts             monday                  CCCFXPCAL + CCCFXPCALLNS for the week
 //   GetMtrlTree                                   CCCFXPRNOMINAL recipe chain
@@ -200,8 +200,8 @@ function GetUnscheduledOrders(Prms)
 {
  if (!checkClientId(Prms)) return responseError();
  var offset   = isInt(Prms.offset)   ? parseInt(Prms.offset, 10)   : 0;
- var pageSize = isInt(Prms.pageSize) ? parseInt(Prms.pageSize, 10) : 300;
- if (pageSize < 1 || pageSize > 1000) pageSize = 300;
+ var pageSize = isInt(Prms.pageSize) ? parseInt(Prms.pageSize, 10) : 1000;
+ if (pageSize < 1 || pageSize > 2000) pageSize = 1000;
  return sqlRows(
    _ordersBaseSelect() +
    " AND D.MTRSTS <> 1" +

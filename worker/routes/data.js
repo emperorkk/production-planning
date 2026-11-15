@@ -38,8 +38,11 @@ export async function handleData(request, env) {
   }
 
   try {
+    const t0   = Date.now();
     const rows = await getDataset(env, session.clientID, name, params);
-    return json({ ok: true, rows });
+    const ms   = Date.now() - t0;
+    console.log(`dataset ${name} ${JSON.stringify(params)}: ${rows.length} rows, soft1 ${ms} ms`);
+    return json({ ok: true, rows }, { headers: { 'server-timing': `soft1;dur=${ms}` } });
   } catch (err) {
     return json({ error: err.message || String(err) }, { status: 502 });
   }

@@ -136,7 +136,9 @@
   // 3. Stage 1: orders touching this week — fast, render gantt blocks
   // 4. Stage 2: unscheduled orders, paged 300 at a time, with setTimeout(0)
   //    yields between pages so the UI stays responsive
-  var UNSCHED_PAGE_SIZE = 300;
+  // Big pages: every page is a full Worker → Soft1 → SQL round trip that re-sorts
+  // the whole result (OFFSET), so fewer, larger pages are much faster.
+  var UNSCHED_PAGE_SIZE = 1000;
 
   // Cancellation token: incremented each time we change weeks so an in-flight
   // page loader can abort if the user navigated away.
@@ -232,6 +234,13 @@
 
     // Re-render the panel every page so the user sees data appearing
     _renderUnscheduled(els.orderSearch ? els.orderSearch.value : '');
+
+    // Short page = that was the last one (saves an extra empty round trip)
+    if (page.length < UNSCHED_PAGE_SIZE) {
+      _setLoadingMsg('');
+      _showLoading(false);
+      return;
+    }
 
     // Yield to the browser, then continue
     setTimeout(function () { _loadUnscheduledPage(offset + UNSCHED_PAGE_SIZE, myToken); }, 0);

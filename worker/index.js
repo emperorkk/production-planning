@@ -20,7 +20,8 @@ import { VERSION }                             from './version.js';
 
 const PUBLIC_PATHS = new Set([
   '/login.html',
-  '/favicon.ico'
+  '/favicon.ico',
+  '/manifest.webmanifest'
 ]);
 
 export default {
@@ -49,7 +50,7 @@ export default {
       }
 
       // ── Static assets: gate everything except PUBLIC_PATHS ─────────────
-      const isPublicStatic = PUBLIC_PATHS.has(path) || path.startsWith('/src/');
+      const isPublicStatic = PUBLIC_PATHS.has(path) || path.startsWith('/src/') || path.startsWith('/icons/');
       if (!isPublicStatic) {
         const session = await getSession(request, env);
         if (!session) {

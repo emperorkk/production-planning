@@ -190,6 +190,8 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
 - ✅ **Cloudflare Worker scaffold** (wrangler.jsonc, worker/index.js, routes, Soft1 client, KV sessions)
 - ✅ **Login page** (`public/login.html` + `src/login.js`) — Soft1 Web Accounts flow
 - ✅ **Worker-only** — embedded mode deprecated & frozen in `legacy/embedded/`; bridge is web | mock
+- ✅ **App icon** (OpenAI-generated, source `assets/icon-source-1024.png`) → `public/favicon.ico`, `public/icons/*`, `public/manifest.webmanifest`
+- ✅ **Version label** on login + toolbar (`/api/version` ← `package.json`)
 - ✅ **AJS web service `soft1/Foxline.planning.js`** — named datasets (SQL moved out of the browser) + batched `SaveSchedule`
 - ✅ **GitHub repo** initial commit pushed to https://github.com/emperorkk/production-planning
 
@@ -204,7 +206,7 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
    | `GetMachines` | — | `{ success, count, data:[rows] }` |
    | `GetPhaseMachines` | — | 〃 |
    | `GetOrdersInWeek` | `weekStart`, `weekEnd` (YYYY-MM-DD) | 〃 |
-   | `GetUnscheduledOrders` | `offset`, `pageSize` (≤1000) | 〃 |
+   | `GetUnscheduledOrders` | `offset`, `pageSize` (≤2000, default 1000) | 〃 |
    | `GetProductionOrders` | `weekStart`, `weekEnd` | 〃 |
    | `GetShifts` | `monday` (YYYY-MM-DD) | 〃 |
    | `GetMtrlTree` | — | 〃 |
@@ -263,11 +265,13 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 - **Lazy load pipeline** in `ui-controller.js _loadData()`:
   1. Metadata (machines, phase-map, shifts) in parallel — `Promise.all`
   2. Week orders (small, fast)
-  3. Unscheduled paged in batches of 300 (DATE01 IS NULL) via `_loadUnscheduledPage(offset)`
+  3. Unscheduled paged in batches of **1000** (DATE01 IS NULL) via `_loadUnscheduledPage(offset)`; stops on a short page. (Was 300 → 6 sequential round trips, each re-sorting with OFFSET — user reported it as extremely slow.)
   4. MTRL tree loaded in background (not awaited)
 - **Cancellation token** `_loadToken` — incremented on every week change so in-flight loaders abort cleanly
 - **O(1) lookups** `state.orderById` / `state.machineById` built once per load — replaces O(n) `.find()` in hot paths
 - **DocumentFragment** for the unscheduled panel; **500-row cap** with "X more — filter to find" hint
+- **Timing:** Worker logs `dataset <name>: N rows, soft1 X ms` (`npm run tail`) and sends `Server-Timing: soft1;dur=X` (DevTools → Network → Timing) — use it to see if slowness is Soft1/SQL or transfer
+- **Next if still slow:** the `isnull(LS.DELIVDATE,L0.DELIVDATE) >= GETDATE()-180` filter is non-sargable; consider an index-friendly rewrite or a single unpaged call
 - **Virtualisation NOT implemented** — relies on the cap + search instead; may need actual virtual scrolling if cap feels too aggressive
 
 ---

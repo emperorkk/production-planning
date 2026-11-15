@@ -881,3 +881,4 @@ input, button, select, textarea {
 
 /* Deployed version label (filled by src/version.js) */
 .app-version { font-size: 11px; font-weight: normal; opacity: 0.7; margin-left: 6px; }
+.toolbar-title .app-icon { vertical-align: -4px; margin-right: 4px; border-radius: 4px; }
