@@ -26,15 +26,26 @@
     &#9998; Υπάρχουν μη αποθηκευμένες αλλαγές &mdash; πατήστε Αποθήκευση
   </div>
 
+  <!-- ── Session expiry warning ── -->
+  <div id="session-banner" hidden>
+    &#9203; <span id="session-text"></span>
+    <button id="btn-relogin" class="btn btn-banner">Σύνδεση ξανά</button>
+  </div>
+
   <!-- ── Toolbar ── -->
   <div id="toolbar">
     <span class="toolbar-title"><img class="app-icon" src="icons/favicon-32.png" alt="" width="20" height="20" /> Πρόγραμμα Παραγωγής <small class="app-version" data-app-version></small></span>
 
     <div class="week-nav">
-      <button id="btn-prev-week" class="btn btn-nav" title="Προηγούμενη εβδομάδα">&#8592;</button>
-      <span id="week-label" class="week-label">—</span>
-      <button id="btn-next-week" class="btn btn-nav" title="Επόμενη εβδομάδα">&#8594;</button>
+      <button id="btn-prev-week" class="btn btn-nav" title="Προηγούμενη εβδομάδα (←)">&#8592;</button>
+      <span id="week-label" class="week-label" title="Κλικ για επιλογή ημερομηνίας">—</span>
+      <input id="week-picker" type="date" class="week-picker" title="Μετάβαση σε εβδομάδα" />
+      <button id="btn-next-week" class="btn btn-nav" title="Επόμενη εβδομάδα (→)">&#8594;</button>
+      <button id="btn-today" class="btn btn-nav btn-today" title="Τρέχουσα εβδομάδα">Σήμερα</button>
     </div>
+
+    <button id="btn-undo" class="btn btn-zoom" title="Αναίρεση (Ctrl+Z)" disabled>&#8630;</button>
+    <button id="btn-redo" class="btn btn-zoom" title="Επανάληψη (Ctrl+Y)" disabled>&#8631;</button>
 
     <button id="btn-zoom-out" class="btn btn-zoom" title="Σμίκρυνση">&#8722;</button>
     <button id="btn-zoom-in"  class="btn btn-zoom" title="Μεγέθυνση">&#43;</button>
@@ -46,12 +57,23 @@
     <span id="prov-pill" class="prov-pill" hidden title="Προσωρινές βάρδιες — κλικ για αφαίρεση όλων">
       &#9888; <span id="prov-count">0</span> προσ. βάρδιες
     </span>
+    <button id="btn-prov-convert" class="btn btn-prov-convert" hidden title="Μετατροπή προσωρινών βαρδιών σε κανονικές βάρδιες στο Soft1">&#8679; Σε Soft1</button>
 
     <span class="spacer"></span>
 
+    <a id="btn-calendar" class="btn btn-calendar" href="calendar.html" title="Ημερολόγιο παραγωγής (βάρδιες) — Soft1">&#128197;</a>
+    <button id="btn-print" class="btn btn-print" title="Εκτύπωση προγράμματος ανά μηχανή/βάρδια">&#128424;</button>
     <button id="btn-export" class="btn btn-export">&#8595; Excel</button>
     <button id="btn-save"   class="btn btn-save" disabled>&#10003; Αποθήκευση</button>
     <button id="btn-logout" class="btn" style="display:none; margin-left:6px;" title="Αποσύνδεση">&#x21AA; Έξοδος</button>
+  </div>
+
+  <!-- ── Missing production calendar week ── -->
+  <div id="cal-banner" hidden>
+    &#128197; <span id="cal-banner-text">Δεν υπάρχει ημερολόγιο παραγωγής (βάρδιες) για αυτή την εβδομάδα στο Soft1 — όλες οι μηχανές εμφανίζονται μη διαθέσιμες.</span>
+    <button id="btn-cal-create" class="btn btn-banner">Δημιουργία από προηγούμενη εβδομάδα</button>
+    <button id="btn-cal-create-empty" class="btn btn-banner btn-banner-sec">Κενή εβδομάδα</button>
+    <a id="btn-cal-open" class="btn btn-banner btn-banner-sec" href="calendar.html">Άνοιγμα ημερολογίου</a>
   </div>
 
   <!-- ── Main content ── -->
@@ -59,8 +81,25 @@
 
     <!-- Left: Unscheduled orders panel -->
     <div id="unscheduled-panel">
-      <div class="panel-header">Μη Προγραμματισμένες</div>
-      <input id="order-search" type="text" placeholder="&#128269; Αναζήτηση παραγγελίας…" autocomplete="off" />
+      <div class="panel-header">Μη Προγραμματισμένες <span id="unsched-count" class="count-badge"></span>
+        <button id="btn-filters" class="btn-filter-toggle" title="Φίλτρα & ταξινόμηση">&#9881;</button></div>
+      <input id="order-search" type="text" placeholder="&#128269; Αναζήτηση (Enter = εντοπισμός στο Gantt)…" autocomplete="off" />
+      <div id="filter-box" hidden>
+        <select id="f-phase"><option value="">Όλες οι φάσεις</option></select>
+        <div class="f-row"><label>Παράδοση από</label><input id="f-from" type="date" /></div>
+        <div class="f-row"><label>έως</label><input id="f-to" type="date" /></div>
+        <label class="f-chk"><input id="f-late" type="checkbox" /> Μόνο εκπρόθεσμες</label>
+        <label class="f-chk"><input id="f-pre" type="checkbox" /> Μόνο με προ-ανάθεση μηχανής</label>
+        <div class="f-row"><label>Ταξινόμηση</label>
+          <select id="f-sort">
+            <option value="deliv-asc">Παράδοση ↑</option>
+            <option value="deliv-desc">Παράδοση ↓</option>
+            <option value="metres-desc">Μέτρα ↓</option>
+            <option value="kilos-desc">Κιλά ↓</option>
+            <option value="id-asc">Κωδικός</option>
+          </select></div>
+        <button id="f-clear" class="btn-filter-clear">Καθαρισμός φίλτρων</button>
+      </div>
       <div id="unscheduled-list"></div>
     </div>
 
@@ -97,7 +136,9 @@
 <!-- Context menu -->
 <div id="context-menu">
   <ul>
-    <li data-action="edit-duration">&#9998; Αλλαγή διάρκειας</li>
+    <li data-action="details">&#9432; Στοιχεία παραγγελίας</li>
+    <li data-action="edit-duration">&#9998; Αλλαγή διάρκειας (εργάσιμες ώρες)</li>
+    <li data-action="toggle-setup">&#9851; Με / χωρίς setup</li>
     <li data-action="remove" class="separator danger">&#10005; Αφαίρεση από πρόγραμμα</li>
   </ul>
 </div>
@@ -113,28 +154,44 @@
 <!-- Add-provisional-shift modal -->
 <div id="modal-backdrop">
   <div class="modal-dialog">
-    <div class="modal-header">&#9888; Προσωρινή Βάρδια</div>
+    <div class="modal-header">&#128197; Βάρδια μηχανής</div>
     <div class="modal-body">
+      <div class="shift-mode">
+        <label><input type="radio" name="shift-mode" value="soft1" checked /> Κανονική βάρδια (Soft1)</label>
+        <label><input type="radio" name="shift-mode" value="prov" /> Προσωρινή (μόνο πλάνο)</label>
+      </div>
       <label>Ημερομηνία</label>
       <input id="shift-date" type="date" />
 
       <label>Μηχανή</label>
       <select id="shift-group"></select>
 
-      <label>Ώρα Έναρξης</label>
-      <input id="shift-start" type="time" step="1800" />
+      <div id="shift-soft1-box">
+        <label>Βάρδιες ημέρας</label>
+        <div class="shift-checks">
+          <label><input id="shift-s1" type="checkbox" /> 1 · Πρωινή 06–14</label>
+          <label><input id="shift-s2" type="checkbox" /> 2 · Απογευματινή 14–22</label>
+          <label><input id="shift-s3" type="checkbox" /> 3 · Νυχτερινή 22–06</label>
+        </div>
+        <div class="hint">Αποθηκεύεται <b>αμέσως στο Soft1</b> (ημερολόγιο παραγωγής CCCFXPCAL).
+          Δεξί κλικ σε βάρδια για αφαίρεση.</div>
+      </div>
+      <div id="shift-prov-box" hidden>
+        <label>Ώρα Έναρξης</label>
+        <input id="shift-start" type="time" step="1800" />
 
-      <label>Ώρα Λήξης</label>
-      <input id="shift-end" type="time" step="1800" />
+        <label>Ώρα Λήξης</label>
+        <input id="shift-end" type="time" step="1800" />
 
-      <div class="hint">
-        Η βάρδια είναι <b>προσωρινή</b> — χρησιμοποιείται μόνο για το πλάνο και
-        <u>δεν αποθηκεύεται στο Soft1</u>. Δεξί κλικ πάνω της για αφαίρεση.
+        <div class="hint">
+          Η βάρδια είναι <b>προσωρινή</b> — χρησιμοποιείται μόνο για το πλάνο και
+          <u>δεν αποθηκεύεται στο Soft1</u> (εκτός αν πατήσετε «Σε Soft1»). Δεξί κλικ πάνω της για αφαίρεση.
+        </div>
       </div>
     </div>
     <div class="modal-footer">
       <button id="btn-shift-cancel" class="btn btn-cancel">Άκυρο</button>
-      <button id="btn-shift-save" class="btn btn-confirm">Προσθήκη</button>
+      <button id="btn-shift-save" class="btn btn-confirm">Αποθήκευση</button>
     </div>
   </div>
 </div>
@@ -146,11 +203,13 @@
 
 <script src="src/soft1-bridge.js"></script>
 <script src="src/data-service.js"></script>
+<script src="src/work-time.js"></script>
 <script src="src/scheduler-engine.js"></script>
 <script src="src/gantt-renderer.js"></script>
 <script src="src/drag-drop-manager.js"></script>
 <script src="src/excel-exporter.js"></script>
-<script src="src/machine-card.js"></script>
+<script src="src/info-card.js"></script>
+<script src="src/print-view.js"></script>
 <script src="src/ui-controller.js"></script>
 
   <script src="src/version.js"></script>

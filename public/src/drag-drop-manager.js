@@ -226,6 +226,18 @@
     var durationMs    = liveHours * 3600000;
     var proposedEnd   = new Date(proposedStart.getTime() + durationMs);
 
+    // Shift-aware span (snaps to working time, skips gaps) when the controller provides it
+    var span = _callbacks.computeSpan ? _callbacks.computeSpan({
+      orderId: _drag.orderId, machineId: tl.dataset.machineId, start: proposedStart,
+      preserveExisting: _drag.type === 'move'
+    }) : null;
+    if (span) {
+      proposedStart = span.start; proposedEnd = span.end;
+      liveHours = (proposedEnd - proposedStart) / 3600000;
+      _dropGhost.classList.toggle('overflow', !!span.overflow);
+      _dropGhost.classList.toggle('combined', !!span.skipSetup);
+    }
+
     // Show ghost
     var ghostX = GanttRenderer.dateToX(proposedStart) + GanttRenderer.LABEL_WIDTH;
     var ghostW = liveHours * GanttRenderer.pxPerHour();
@@ -284,7 +296,17 @@
     var durationMs    = dropHours * 3600000;
     var proposedEnd   = new Date(proposedStart.getTime() + durationMs);
 
+    var span = _callbacks.computeSpan ? _callbacks.computeSpan({
+      orderId: _drag.orderId, machineId: tl.dataset.machineId, start: proposedStart,
+      preserveExisting: _drag.type === 'move'
+    }) : null;
+    if (span) {
+      proposedStart = span.start; proposedEnd = span.end;
+      dropHours = (proposedEnd - proposedStart) / 3600000;
+    }
+
     _emit('drop', {
+      span:         span,
       type:         _drag.type,
       orderId:      _drag.orderId,
       machineId:    tl.dataset.machineId,

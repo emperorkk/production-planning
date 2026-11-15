@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+  <meta name="theme-color" content="#2c3e50" />
+  <title>Ημερολόγιο Παραγωγής — Vlachos Bros</title>
+  <link rel="stylesheet" href="src/styles.css" />
+  <link rel="stylesheet" href="src/calendar.css" />
+</head>
+<body class="cal-page">
+  <div id="toolbar">
+    <span class="toolbar-title"><img class="app-icon" src="icons/favicon-32.png" alt="" width="20" height="20" /> Ημερολόγιο Παραγωγής <small class="app-version" data-app-version></small></span>
+    <div class="week-nav">
+      <button id="c-prev" class="btn btn-nav" title="Προηγούμενη εβδομάδα (←)">&#8592;</button>
+      <span id="c-week" class="week-label">—</span>
+      <input id="c-picker" type="date" class="week-picker" />
+      <button id="c-next" class="btn btn-nav" title="Επόμενη εβδομάδα (→)">&#8594;</button>
+      <button id="c-today" class="btn btn-nav btn-today">Σήμερα</button>
+    </div>
+    <span class="spacer"></span>
+    <a id="c-back" class="btn btn-calendar" href="production-planner.html">&#8592; Πρόγραμμα</a>
+    <button id="c-save" class="btn btn-save" disabled>&#10003; Αποθήκευση στο Soft1</button>
+  </div>
+
+  <div id="c-status" class="c-status"></div>
+
+  <div class="c-actions">
+    <div id="c-missing" class="c-missing" hidden>
+      Η εβδομάδα δεν υπάρχει στο Soft1.
+      <button id="c-create" class="btn btn-banner">Δημιουργία από προηγούμενη</button>
+      <button id="c-create-empty" class="btn btn-banner btn-banner-sec">Κενή</button>
+    </div>
+    <div class="c-fill">
+      Συμπλήρωση εβδομάδων που λείπουν έως
+      <input id="c-fill-to" type="date" />
+      <button id="c-fill" class="btn btn-banner btn-banner-sec" title="Δημιουργεί κάθε εβδομάδα που λείπει, αντιγράφοντας την προηγούμενη">Συμπλήρωση</button>
+    </div>
+    <div class="c-legend">Κλικ: βάρδια · κλικ σε μηχανή: όλη η εβδομάδα · κλικ σε ημέρα/βάρδια (κεφαλίδα): στήλη</div>
+  </div>
+
+  <div class="c-wrap"><table id="c-grid" class="c-grid"></table></div>
+
+  <div id="toast"></div>
+  <div id="loading-overlay"><div class="spinner"></div></div>
+
+  <script src="src/soft1-bridge.js"></script>
+  <script src="src/data-service.js"></script>
+  <script src="src/calendar.js"></script>
+  <script src="src/version.js"></script>
+</body>
+</html>

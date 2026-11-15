@@ -86,6 +86,122 @@
       return result;
     },
 
+    // ── Phase chain (CCCFXPRNOMINAL) ─────────────────────────────────────
+    // Tree line: PRDMTRL is produced from RAW1..RAW4. An order producing mtrl X has as
+    // predecessors the orders producing X's raws (same sales order when both are known).
+    buildChainIndex: function (orders, mtrlTree) {
+      var raws = {};                       // prdMtrl -> [rawMtrl, ...]
+      var produced = {};                   // rawMtrl -> [prdMtrl, ...]
+      (mtrlTree || []).forEach(function (r) {
+        var prd = r.prdMtrl != null ? String(r.prdMtrl) : null;
+        if (!prd) return;
+        [r.raw1, r.raw2, r.raw3, r.raw4].forEach(function (x) {
+          if (x == null || x === '') return;
+          x = String(x);
+          (raws[prd] = raws[prd] || []).push(x);
+          (produced[x] = produced[x] || []).push(prd);
+        });
+      });
+      var byMtrl = {};
+      orders.forEach(function (o) { if (o.mtrl != null) (byMtrl[String(o.mtrl)] = byMtrl[String(o.mtrl)] || []).push(o); });
+      function sameSO(a, b) { return !a.salesOrderRef || !b.salesOrderRef || String(a.salesOrderRef) === String(b.salesOrderRef); }
+      function collect(o, map) {
+        var out = [];
+        ((o.mtrl != null && map[String(o.mtrl)]) || []).forEach(function (m) {
+          (byMtrl[m] || []).forEach(function (p) { if (p !== o && sameSO(o, p) && out.indexOf(p) < 0) out.push(p); });
+        });
+        return out;
+      }
+      return {
+        predecessors: function (o) { return collect(o, raws); },
+        successors:   function (o) { return collect(o, produced); }
+      };
+    },
+
+    // [{ order, pred }] where order starts before its scheduled predecessor ends
+    getChainViolations: function (orders, chain) {
+      var out = [];
+      _scheduled(orders).forEach(function (o) {
+        chain.predecessors(o).forEach(function (p) {
+          if (p.plannedEnd && p.plannedStart && o.plannedStart < p.plannedEnd) out.push({ order: o, pred: p });
+        });
+      });
+      return out;
+    },
+
+    // ── Smart auto-place (shift-aware) ────────────────────────────────────
+    // Earliest delivery first; for each order the eligible machine that FINISHES earliest;
+    // never before `minStart`, never before a predecessor's end, no overlaps, inside the week.
+    // opts: { orders, machines, phaseMachines, weekStart, weekEnd, minStart, chain, workMinutes(order, machine) }
+    autoPlace: function (candidates, opts) {
+      var WT = global.WorkTime;
+      var blocks = {};                     // mid -> sorted scheduled orders
+      _scheduled(opts.orders).forEach(function (o) { (blocks[o.machineId] = blocks[o.machineId] || []).push(o); });
+      Object.keys(blocks).forEach(function (k) { blocks[k].sort(function (a, b) { return a.plannedStart - b.plannedStart; }); });
+
+      var list = candidates.slice().sort(function (a, b) {
+        var da = a.deliveryDate ? +a.deliveryDate : Infinity, db = b.deliveryDate ? +b.deliveryDate : Infinity;
+        return da - db || String(a.id).localeCompare(String(b.id));
+      });
+      // Predecessors first (topological), otherwise delivery order
+      if (opts.chain) {
+        var inList = {}; list.forEach(function (o) { inList[o.id] = o; });
+        var seen = {}, ordered = [];
+        var visit = function (o, depth) {
+          if (seen[o.id] || depth > 20) return;
+          seen[o.id] = true;
+          opts.chain.predecessors(o).forEach(function (p) { if (inList[p.id]) visit(p, depth + 1); });
+          ordered.push(o);
+        };
+        list.forEach(function (o) { visit(o, 0); });
+        list = ordered;
+      }
+      var placements = [];
+      var placedEnd = {};                  // id -> end ms of orders placed in this run
+
+      list.forEach(function (order) {
+        var eligible = (opts.phaseMachines[order.phase] || []).map(function (id) {
+          return opts.machines.filter(function (m) { return m.id === id; })[0];
+        }).filter(Boolean);
+        var earliest = +opts.minStart;
+        if (opts.chain) opts.chain.predecessors(order).forEach(function (p) {
+          var pe = placedEnd[p.id] || (p.plannedEnd ? +p.plannedEnd : 0);
+          if (pe) earliest = Math.max(earliest, pe);
+        });
+
+        var best = null;
+        eligible.forEach(function (m) {
+          var minutes = opts.workMinutes(order, m);
+          var list = blocks[m.id] || [];
+          var t = earliest;
+          for (var guard = 0; guard < 500; guard++) {
+            var s = WT.nextWorking(m.id, t);
+            if (!s || +s >= +opts.weekEnd) return;
+            var span = WT.addWork(m.id, s, minutes);
+            if (span.overflow || +span.end > +opts.weekEnd) return;
+            var hit = null;
+            for (var i = 0; i < list.length; i++) {
+              if (+list[i].plannedEnd > +span.start && +list[i].plannedStart < +span.end) { hit = list[i]; break; }
+            }
+            if (!hit) {
+              if (!best || +span.end < +best.end) best = { machine: m, start: span.start, end: span.end, minutes: minutes };
+              return;
+            }
+            t = +hit.plannedEnd;
+          }
+        });
+        if (!best) return;
+        var fake = { id: order.id, machineId: best.machine.id, plannedStart: best.start, plannedEnd: best.end };
+        var arr = blocks[best.machine.id] = blocks[best.machine.id] || [];
+        arr.push(fake);
+        arr.sort(function (a, b) { return a.plannedStart - b.plannedStart; });
+        placedEnd[order.id] = +best.end;
+        placements.push({ order: order, machineId: best.machine.id, plannedStart: best.start,
+                          plannedEnd: best.end, workMin: best.minutes });
+      });
+      return placements;
+    },
+
     // Suggests earliest available slot for an unscheduled order
     // phaseMachines: { phase -> [machineId,...] }, computeHoursFn(machine) -> hours
     findFirstAvailableSlot: function (order, machines, orders, shifts, weekStart, phaseMachines, computeHoursFn) {

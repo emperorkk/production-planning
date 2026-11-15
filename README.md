@@ -20,6 +20,7 @@ browser ──/api/data, /api/save──▶ Worker ──/s1services/JS/Foxline.
 public/                           ← served as static assets by the Worker
 ├── login.html                    ← web-only login page
 ├── production-planner.html       ← main app
+├── calendar.html                 ← production calendar editor (CCCFXPCAL)
 └── src/
     ├── soft1-bridge.js           ← web | mock — /api/data + /api/save
     ├── data-service.js           ← dataset calls + row mapping (no SQL)
@@ -38,7 +39,9 @@ worker/                           ← Cloudflare Worker (nodejs_compat)
 ├── session.js                    ← KV-backed sessions (random id)
 └── routes/
     ├── auth.js                   ← /api/login, /api/logout, /api/me
-    └── data.js                   ← /api/data (named datasets), /api/save (structured schedule write)
+    ├── data.js                   ← /api/data (named datasets), /api/save (structured schedule write)
+    ├── record.js                 ← /api/record (native getData, RSRC)
+    └── calendar.js               ← /api/calendar (production calendar CCCFXPCAL)
 
 soft1/Foxline.planning.js         ← Soft1 AJS web service — ALL planner SQL lives here
 
@@ -83,7 +86,13 @@ scripts/sync-to-softone.mjs       ← LEGACY: copies legacy/embedded/ → C:\Sof
    | `GetProductionOrders` | `weekStart`, `weekEnd` | 〃 |
    | `GetShifts` | `monday` (YYYY-MM-DD) | 〃 |
    | `GetMtrlTree` | — | 〃 |
-   | `SaveSchedule` | `orders: [{findoc, machine, start, end}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, errors }` |
+   | `GetOrderDetails` | `findoc` | 〃 |
+   | `SaveSchedule` | `orders: [{findoc, machine, start, end, origMachine, origStart, origEnd}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, conflicts, errors }` |
+   | `GetCalendarWeek` | `monday` | `{ success, exists, header, data }` |
+   | `GetCalendarWeeks` | `from`, `to` | `{ success, data }` |
+   | `CreateCalendarWeek` | `monday`, `copy` | `{ success, id, code, copiedFrom }` |
+   | `SaveCalendarWeek` | `monday`, `lines: [{rsrc, s}]` | `{ success, updated, inserted, errors }` |
+   | `FillMissingWeeks` | `from`, `to` | `{ success, created, skipped, errors }` |
 
 5. Run locally:
    ```bash

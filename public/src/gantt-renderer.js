@@ -156,6 +156,9 @@
         if (deadlineSet[order.id])   el.classList.add('deadline-violation');
         if (order._origMachineId && order._origMachineId !== order.machineId)
           el.classList.add('reassigned');
+        if (order._skipSetup)                        el.classList.add('combined');
+        if (state._chainViol && state._chainViol[order.id]) el.classList.add('chain-violation');
+        if (state._highlightId === order.id)         el.classList.add('highlight');
 
         var color = orderColor(order.id);
         el.style.left            = x + 'px';
@@ -166,6 +169,9 @@
         var lockBadge = locked ? '<span class="lock-icon" title="Ολοκληρωμένη — κλειδωμένη">&#128274;</span>' : '';
         var preBadge  = (!locked && order._origMachineId === order.machineId)
                           ? '<span class="pre-pin" title="Προ-ανατεθειμένη μηχανή">&#128204;</span>' : '';
+        if (order._skipSetup) preBadge += '<span class="combo-badge" title="Συνδυασμός παραγωγής — χωρίς setup">&#9851;</span>';
+        if (state._chainViol && state._chainViol[order.id])
+          preBadge += '<span class="chain-badge" title="' + _esc(state._chainViol[order.id]) + '">&#8645;</span>';
 
         el.innerHTML =
           '<div class="block-inner">' +
@@ -187,15 +193,34 @@
                      '\n• Παραγωγή: ' + Math.round(br.productionMin) + ' λ (' + (order.linearMetres || 0) + ' μ)' +
                      '\n• Αναμονή:  ' + br.waitMin + ' λ';
         }
+        var workTxt = '';
+        if (global.WorkTime) {
+          var wm = WorkTime.workBetween(order.machineId, order.plannedStart, order.plannedEnd);
+          workTxt = ' (εργάσιμες ' + (wm / 60).toFixed(1) + 'ω)';
+        }
+        if (order._skipSetup) tipExtra += '\n♻ Συνδυασμός με προηγούμενη — χωρίς setup';
+        if (state._chainViol && state._chainViol[order.id]) tipExtra += '\n⇅ ' + state._chainViol[order.id];
         el.title = (locked ? '🔒 ' : '') + order.id + ' — ' + (order.description || '') +
                    '\n' + fmtTime(order.plannedStart) + ' – ' + fmtTime(order.plannedEnd) +
-                   '\nΔιάρκεια: ' + durationHours.toFixed(1) + ' ώρες' + tipExtra;
+                   '\nΔιάρκεια: ' + durationHours.toFixed(1) + ' ώρες' + workTxt + tipExtra +
+                   '\n(κλικ για στοιχεία)';
 
         el.draggable = !locked;
         tl.appendChild(el);
       });
 
-      var util = SchedulerEngine.getMachineUtilisation(state.orders, state.shifts, state.machines);
+      var util;
+      if (global.WorkTime) {
+        var detail = WorkTime.utilisation(state.orders, state.machines, _weekStart, WEEK_DAYS);
+        util = {};
+        Object.keys(detail).forEach(function (mid) {
+          util[mid] = {};
+          Object.keys(detail[mid]).forEach(function (d) { util[mid][d] = detail[mid][d].pct; });
+        });
+        _renderHeatStrips(detail, state);
+      } else {
+        util = SchedulerEngine.getMachineUtilisation(state.orders, state.shifts, state.machines);
+      }
       _renderUtilBars(util, state);
     },
 
@@ -412,6 +437,17 @@
           band.title = (sh.provisional ? 'Προσωρινή ' : '') +
                        'Βάρδια ' + sNum + ': ' + sh.startTime + '–' + sh.endTime +
                        (sh.provisional ? '\n(δεξί κλικ για αφαίρεση)' : '');
+          if (!sh.provisional && sh.isProgrammeRow) {
+            // Real Soft1 shift — right-click removes it from CCCFXPCAL. Carry-over 00–06 belongs to the previous day's shift 3.
+            var progDay = sh.date;
+            if (sh.isCarryOver) {
+              var pd = new Date(sh.date + 'T00:00:00'); pd.setDate(pd.getDate() - 1); progDay = _fmtDate(pd);
+            }
+            band.dataset.realShift  = String(sh.shiftNum);
+            band.dataset.machineId  = sh.machineId;
+            band.dataset.shiftDay   = progDay;
+            band.title += '\n(δεξί κλικ: αφαίρεση από Soft1)';
+          }
           if (sh.provisional) {
             band.dataset.provisional = '1';
             band.dataset.shiftDate   = sh.date;
@@ -474,6 +510,25 @@
     var parts = String(t).split(':');
     var totalHours = parseInt(parts[0], 10) + (parseInt(parts[1], 10) || 0) / 60;
     return (totalHours - DAY_START_HOUR) * pxPerHour;
+  }
+
+  // ── Daily load heatmap strip at the bottom of every machine row ─────────
+  function _renderHeatStrips(detail, state) {
+    Object.keys(_machineRows).forEach(function (mid) {
+      var tl = _machineRows[mid];
+      tl.querySelectorAll('.heat-cell').forEach(function (c) { c.remove(); });
+      for (var d = 0; d < WEEK_DAYS; d++) {
+        var day = new Date(state.weekStart); day.setDate(day.getDate() + d);
+        var u = detail[mid] && detail[mid][_fmtDate(day)];
+        if (!u || (!u.avail && !u.sched)) continue;
+        var c = document.createElement('div');
+        c.className = 'heat-cell ' + (u.pct > 100 ? 'h-over' : u.pct >= 85 ? 'h-high' : u.pct >= 50 ? 'h-mid' : u.pct > 0 ? 'h-low' : 'h-zero');
+        c.style.left  = (d * dayWidth()) + 'px';
+        c.style.width = dayWidth() + 'px';
+        c.title = 'Φόρτος ' + fmtDateShort(day) + ': ' + u.pct + '% (' + (u.sched / 60).toFixed(1) + ' / ' + (u.avail / 60).toFixed(1) + ' ώρες)';
+        tl.appendChild(c);
+      }
+    });
   }
 
   // ── Render utilisation bars (per phase group, max across machines) ────────

@@ -1,5 +1,5 @@
 import { loginAndAuthenticate }                              from '../soft1-client.js';
-import { createSession, destroySession, getSession, sessionCookie, clearCookie } from '../session.js';
+import { createSession, destroySession, getSession, sessionCookie, clearCookie, SESSION_TTL } from '../session.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 
@@ -47,6 +47,7 @@ export async function handleMe(request, env) {
   return json({
     user:    session.user,
     company: session.company,
-    branch:  session.branch
+    branch:  session.branch,
+    expiresAt: session.createdAt ? session.createdAt + SESSION_TTL * 1000 : null
   });
 }

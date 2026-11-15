@@ -17,8 +17,17 @@
     shifts:         [],
     mtrlTree:       [],
     changedOrders:  {},
-    dirty:          false
+    dirty:          false,
+    calendarExists: true,    // false → no CCCFXPCAL week in Soft1 (banner)
+    _chain:         null,    // phase chain index (SchedulerEngine.buildChainIndex)
+    _chainViol:     {},      // orderId -> message (starts before predecessor ends)
+    _highlightId:   null     // search-jump highlight
   };
+
+  // Undo / redo (unsaved planner changes) + filters
+  var _undo = [], _redo = [];
+  var _filters = { phase: '', from: null, to: null, late: false, pre: false, sort: 'deliv-asc' };
+  var _fullyLoaded = false;
 
   function _phaseLabel(p) {
     if (p == null || p === '') return '';
@@ -74,11 +83,42 @@
     els.btnShiftCancel  = document.getElementById('btn-shift-cancel');
     els.btnShiftSave    = document.getElementById('btn-shift-save');
     els.btnLogout       = document.getElementById('btn-logout');
+    els.btnUndo         = document.getElementById('btn-undo');
+    els.btnRedo         = document.getElementById('btn-redo');
+    els.btnToday        = document.getElementById('btn-today');
+    els.weekPicker      = document.getElementById('week-picker');
+    els.btnPrint        = document.getElementById('btn-print');
+    els.btnCalendar     = document.getElementById('btn-calendar');
+    els.calBanner       = document.getElementById('cal-banner');
+    els.btnCalCreate    = document.getElementById('btn-cal-create');
+    els.btnCalCreateEmpty = document.getElementById('btn-cal-create-empty');
+    els.btnCalOpen      = document.getElementById('btn-cal-open');
+    els.sessionBanner   = document.getElementById('session-banner');
+    els.sessionText     = document.getElementById('session-text');
+    els.btnRelogin      = document.getElementById('btn-relogin');
+    els.btnProvConvert  = document.getElementById('btn-prov-convert');
+    els.unschedCount    = document.getElementById('unsched-count');
+    els.btnFilters      = document.getElementById('btn-filters');
+    els.filterBox       = document.getElementById('filter-box');
+    els.fPhase          = document.getElementById('f-phase');
+    els.fFrom           = document.getElementById('f-from');
+    els.fTo             = document.getElementById('f-to');
+    els.fLate           = document.getElementById('f-late');
+    els.fPre            = document.getElementById('f-pre');
+    els.fSort           = document.getElementById('f-sort');
+    els.fClear          = document.getElementById('f-clear');
+    els.shiftS          = [document.getElementById('shift-s1'), document.getElementById('shift-s2'), document.getElementById('shift-s3')];
+    els.shiftSoft1Box   = document.getElementById('shift-soft1-box');
+    els.shiftProvBox    = document.getElementById('shift-prov-box');
 
     if (Soft1Bridge.isMock && els.mockBanner) els.mockBanner.style.display = 'block';
 
-    // Click a machine name → floating Soft1 RSRC card
-    if (global.MachineCard) MachineCard.init(function () { return state; });
+    // Click a machine name / order → floating info cards
+    if (global.InfoCard) InfoCard.init({
+      getState: function () { return state; },
+      getChain: function () { return state._chain; },
+      onJump:   function (o) { _jumpToOrder(o); }
+    });
 
     // Logout button only exists in web mode
     if (Soft1Bridge.isWeb && els.btnLogout) {
@@ -98,6 +138,11 @@
     _bindGanttSync();
     _bindShiftBands();
     _bindShiftModal();
+    _bindNavigation();
+    _bindHistory();
+    _bindFilters();
+    _bindCalendarUi();
+    _startSessionWatch();
 
     window.addEventListener('beforeunload', function (e) {
       if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
@@ -130,6 +175,11 @@
     state.weekStart = newStart;
     state.weekEnd   = _getWeekEnd(newStart);
     if (els.weekLabel) els.weekLabel.textContent = _weekLabel(state.weekStart, state.weekEnd);
+    if (els.weekPicker) els.weekPicker.value = _fmtDate(state.weekStart);
+    var calHref = 'calendar.html?week=' + _fmtDate(state.weekStart);
+    if (els.btnCalendar) els.btnCalendar.href = calHref;
+    if (els.btnCalOpen)  els.btnCalOpen.href  = calHref;
+    _undo = []; _redo = []; _updateHistoryButtons();
     _loadData();
   }
 
@@ -170,9 +220,14 @@
       state.machinePhases = meta[1].machinePhases;
       state.phaseNames    = meta[1].phaseNames;
       state.shifts        = meta[2];
+      state.calendarExists = !(meta[2].programmeRows === 0);
+      _updateCalBanner();
 
       var provs = _provisionalShiftsByWeek[_weekKey()] || [];
       provs.forEach(function (s) { state.shifts.push(s); });
+      _rebuildWorkTime();
+      _fillPhaseFilter();
+      _fullyLoaded = false;
 
       state.machineById = {};
       state.machines.forEach(function (m) { state.machineById[m.id] = m; });
@@ -204,7 +259,14 @@
 
       // --- Lazy: MTRL tree in background -----------------------------------
       DataService.getMtrlTree()
-        .then(function (t) { if (myToken === _loadToken) state.mtrlTree = t; })
+        .then(function (t) {
+          if (myToken !== _loadToken) return;
+          state.mtrlTree = t;
+          _computeChain();
+          GanttRenderer.renderBlocks(state);
+          DragDropManager.attachBlockListeners();
+          _renderIssues();
+        })
         .catch(function (e) { console.warn('mtrlTree:', e); });
 
     } catch (e) {
@@ -226,9 +288,7 @@
     }
 
     if (!page || !page.length) {
-      _setLoadingMsg('');
-      _showLoading(false);
-      _renderUnscheduled();
+      _onLoadComplete();
       return;
     }
 
@@ -240,13 +300,21 @@
 
     // Short page = that was the last one (saves an extra empty round trip)
     if (page.length < UNSCHED_PAGE_SIZE) {
-      _setLoadingMsg('');
-      _showLoading(false);
+      _onLoadComplete();
       return;
     }
 
     // Yield to the browser, then continue
     setTimeout(function () { _loadUnscheduledPage(offset + UNSCHED_PAGE_SIZE, myToken); }, 0);
+  }
+
+  function _onLoadComplete() {
+    _setLoadingMsg('');
+    _showLoading(false);
+    _fullyLoaded = true;
+    _computeChain();
+    _rerender();
+    _offerDraft();
   }
 
   function _appendOrders(rows) {
@@ -273,6 +341,7 @@
 
   // ── Render ────────────────────────────────────────────────────────────────
   function _render() {
+    _computeChain();
     GanttRenderer.init(els.timeHeader, els.ganttBody, els.dropGhost, state);
     GanttRenderer.renderBlocks(state);
 
@@ -286,6 +355,7 @@
   }
 
   function _rerender() {
+    _computeChain();
     GanttRenderer.renderBlocks(state);
     DragDropManager.attachBlockListeners();
     _renderUnscheduled(els.orderSearch ? els.orderSearch.value : '');
@@ -302,30 +372,50 @@
   }
 
   // ── Unscheduled panel ─────────────────────────────────────────────────────
+  function _filteredUnscheduled(filter) {
+    var filterText = (filter != null ? filter : (els.orderSearch ? els.orderSearch.value : '')).toLowerCase().trim();
+    var now = new Date();
+    var from = _filters.from ? new Date(_filters.from + 'T00:00:00') : null;
+    var to   = _filters.to   ? new Date(_filters.to   + 'T23:59:59') : null;
+    var list = state.orders.filter(function (o) {
+      if (o.status === 1 || o.plannedStart) return false;               // only truly unscheduled
+      if (_filters.phase && String(o.phase) !== _filters.phase) return false;
+      var hasDel = o.deliveryDate && o.deliveryDate.getFullYear() > 1970;
+      if (from && (!hasDel || o.deliveryDate < from)) return false;
+      if (to   && (!hasDel || o.deliveryDate > to))   return false;
+      if (_filters.late && !(hasDel && o.deliveryDate < now)) return false;
+      if (_filters.pre && !o._origMachineId) return false;
+      if (filterText && o.id.toLowerCase().indexOf(filterText) < 0 &&
+          (o.description || '').toLowerCase().indexOf(filterText) < 0 &&
+          (_phaseShort(o.phase) || '').toLowerCase().indexOf(filterText) < 0) return false;
+      return true;
+    });
+    var key = _filters.sort;
+    function dv(o) { return o.deliveryDate ? +o.deliveryDate : Infinity; }
+    list.sort(function (a, b) {
+      if (key === 'deliv-desc')  return (dv(b) === Infinity ? -Infinity : dv(b)) - (dv(a) === Infinity ? -Infinity : dv(a));
+      if (key === 'metres-desc') return (b.linearMetres || 0) - (a.linearMetres || 0);
+      if (key === 'kilos-desc')  return (b.kilos || 0) - (a.kilos || 0);
+      if (key === 'id-asc')      return String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+      return dv(a) - dv(b);
+    });
+    return list;
+  }
+
   function _renderUnscheduled(filter) {
     els.unscheduledList.innerHTML = '';
-    var filterText = (filter || '').toLowerCase();
+    var list  = _filteredUnscheduled(filter);
+    var total = state.orders.filter(function (o) { return o.status !== 1 && !o.plannedStart; }).length;
+    if (els.unschedCount) els.unschedCount.textContent = list.length === total ? String(total) : (list.length + ' / ' + total);
+    if (els.btnFilters) els.btnFilters.classList.toggle('active', _filtersActive());
 
-    var unscheduled = state.orders.filter(function (o) {
-      if (o.status === 1) return false;                                    // completed → never unscheduled
-      if (!o.plannedStart) return true;                                    // truly unscheduled
-      // Has a planned start — only "unscheduled here" if it falls outside this week
-      // AND we don't show those either (planner navigates to that week to find them).
-      return false;
-    });
-
-    // Build into a fragment for batch insertion (1500 cards × appendChild = slow)
     var frag = document.createDocumentFragment();
     var now  = new Date();
-    var rendered = 0;
-    var MAX_RENDER = 500;   // cap initial render; refine via search to find more
+    var MAX_RENDER = 500;   // cap; refine via search/filters to find more
+    var n = Math.min(list.length, MAX_RENDER);
 
-    for (var i = 0; i < unscheduled.length && rendered < MAX_RENDER; i++) {
-      var order = unscheduled[i];
-      if (filterText && order.id.toLowerCase().indexOf(filterText) < 0 &&
-          (order.description || '').toLowerCase().indexOf(filterText) < 0 &&
-          (_phaseShort(order.phase) || '').toLowerCase().indexOf(filterText) < 0) continue;
-
+    for (var i = 0; i < n; i++) {
+      var order = list[i];
       var color = GanttRenderer.orderColor(order.id);
       var hasDelivery = order.deliveryDate && order.deliveryDate.getFullYear() > 1970;
       var isOverdue   = hasDelivery && order.deliveryDate < now;
@@ -335,6 +425,7 @@
       card.style.borderLeftColor = color;
       card.dataset.orderId = order.id;
       card.draggable = true;
+      card.title = 'Σύρετε στο Gantt · κλικ για στοιχεία';
 
       var delivTxt  = hasDelivery ? _fmtDateShort(order.deliveryDate) : '—';
       var metresTxt = (order.linearMetres || 0).toLocaleString() + ' μ.';
@@ -352,21 +443,59 @@
         '<div class="card-delivery' + (isOverdue ? ' overdue' : '') + '">&#128197; ' + delivTxt + '</div>' +
         '<div class="card-delivery" style="color:#444">&#128208; ' + metresTxt + ' &nbsp; &#9878;&#65039; ' + kilosTxt + '</div>' +
         preTag;
-
       frag.appendChild(card);
-      rendered++;
     }
     els.unscheduledList.appendChild(frag);
 
-    // Hint if list was capped
-    if (unscheduled.length > rendered) {
+    if (list.length > n) {
       var more = document.createElement('div');
       more.style.cssText = 'padding:8px;font-size:11px;color:#888;text-align:center;font-style:italic;';
-      more.textContent = '... ακόμα ' + (unscheduled.length - rendered) + ' παραγγελίες (φιλτράρετε για να βρείτε)';
+      more.textContent = '... ακόμα ' + (list.length - n) + ' παραγγελίες (φιλτράρετε για να βρείτε)';
       els.unscheduledList.appendChild(more);
+    } else if (!list.length) {
+      var none = document.createElement('div');
+      none.style.cssText = 'padding:12px;font-size:12px;color:#888;text-align:center;';
+      none.textContent = _fullyLoaded ? 'Καμία παραγγελία με αυτά τα κριτήρια' : 'Φόρτωση…';
+      els.unscheduledList.appendChild(none);
     }
 
     DragDropManager.attachCardListeners();
+  }
+
+  function _filtersActive() {
+    return !!(_filters.phase || _filters.from || _filters.to || _filters.late || _filters.pre);
+  }
+
+  function _fillPhaseFilter() {
+    if (!els.fPhase) return;
+    var cur = els.fPhase.value;
+    var phases = Object.keys(state.phaseMachines).sort();
+    els.fPhase.innerHTML = '<option value="">Όλες οι φάσεις</option>' + phases.map(function (p) {
+      return '<option value="' + _esc(p) + '">' + _esc(_phaseLabel(p)) + '</option>';
+    }).join('');
+    els.fPhase.value = cur;
+  }
+
+  function _bindFilters() {
+    if (!els.filterBox) return;
+    els.btnFilters.addEventListener('click', function () { els.filterBox.hidden = !els.filterBox.hidden; });
+    function apply() {
+      _filters.phase = els.fPhase.value;
+      _filters.from  = els.fFrom.value || null;
+      _filters.to    = els.fTo.value || null;
+      _filters.late  = els.fLate.checked;
+      _filters.pre   = els.fPre.checked;
+      _filters.sort  = els.fSort.value;
+      _renderUnscheduled();
+    }
+    [els.fPhase, els.fFrom, els.fTo, els.fLate, els.fPre, els.fSort].forEach(function (el) {
+      el.addEventListener('change', apply);
+    });
+    els.fClear.addEventListener('click', function () {
+      els.fPhase.value = ''; els.fFrom.value = ''; els.fTo.value = '';
+      els.fLate.checked = false; els.fPre.checked = false; els.fSort.value = 'deliv-asc';
+      apply();
+    });
   }
 
   // ── Issue panel ────────────────────────────────────────────────────────────
@@ -381,6 +510,10 @@
     });
     SchedulerEngine.getDeadlineViolations(state.orders).forEach(function (o) {
       issues.push({ type: 'deadline', text: 'Υπέρβαση παράδοσης: ' + o.id, order: o });
+    });
+    Object.keys(state._chainViol || {}).forEach(function (id) {
+      var o = state.orderById[id];
+      if (o) issues.push({ type: 'chain', text: id + ': ' + state._chainViol[id], order: o });
     });
 
     if (issues.length === 0) {
@@ -402,7 +535,7 @@
                        '<span class="issue-text">' + _esc(issue.text) + '</span>' +
                        '<button class="issue-remove" title="Αφαίρεση από πρόγραμμα">&#10005;</button>';
       item.querySelector('.issue-text').addEventListener('click', function () {
-        _scrollToOrder(issue.order);
+        _jumpToOrder(issue.order);
       });
       item.querySelector('.issue-remove').addEventListener('click', function (e) {
         e.stopPropagation();
@@ -410,9 +543,11 @@
           _toast('Η παραγγελία είναι κλειδωμένη — δεν αφαιρείται', 'error');
           return;
         }
+        _pushHistory();
         issue.order.machineId    = null;
         issue.order.plannedStart = null;
         issue.order.plannedEnd   = null;
+        issue.order._skipSetup   = false;
         _markChanged(issue.order);
         _rerender();
         _toast(issue.order.id + ' επιστράφηκε στις μη προγραμματισμένες', 'warn');
@@ -445,6 +580,12 @@
       return DataService.computeDurationHours(order, machine);
     });
 
+    // Shift-aware span: snaps to working time, skips non-shift gaps; magnet to the previous
+    // block (≤ 30') and combined run (same item right after → no setup).
+    DragDropManager.on('computeSpan', function (data) {
+      return _computeSpan(data.orderId, data.machineId, data.start, data.preserveExisting);
+    });
+
     DragDropManager.on('drop', function (data) {
       var order = state.orderById[data.orderId];
       if (!order) return;
@@ -474,27 +615,41 @@
         return;
       }
 
+      _pushHistory();
+      var keepOverride = order._userOverridden && order.machineId === data.machineId;
       order.machineId    = data.machineId;
       order.plannedStart = data.plannedStart;
       order.plannedEnd   = data.plannedEnd;
+      if (data.span) {
+        order._workMin   = data.span.workMin;
+        order._skipSetup = !!data.span.skipSetup;
+      }
+      if (!keepOverride) order._userOverridden = false;
       _markChanged(order);
       _rerender();
 
       var machine = state.machineById[data.machineId];
       if (machine) {
         var br = DataService.durationBreakdown(order, machine);
-        _toast(order.id + ' → ' + machine.name + ': ' +
-               (br.totalMin / 60).toFixed(1) + 'ω (setup ' + br.setupMin +
-               'λ + παραγωγή ' + Math.round(br.productionMin) + 'λ + αναμονή ' + br.waitMin + 'λ)', 'success');
+        var msg = order.id + ' → ' + machine.name + ': ' + ((order._workMin || br.totalMin) / 60).toFixed(1) + ' εργάσιμες ώρες' +
+                  (order._skipSetup ? ' (♻ συνδυασμός — χωρίς setup)' : ' (setup ' + br.setupMin + 'λ + παραγωγή ' +
+                   Math.round(br.productionMin) + 'λ + αναμονή ' + br.waitMin + 'λ)');
+        if (data.span && data.span.overflow) {
+          _toast(msg + ' — ⚠ ξεπερνά τις διαθέσιμες βάρδιες της εβδομάδας', 'warn');
+        } else {
+          _toast(msg, 'success');
+        }
       }
     });
 
     DragDropManager.on('resizeEnd', function (data) {
       var order = state.orderById[data.orderId];
       if (!order || order.status === 1) return;
+      _pushHistory();
       var newEnd = new Date(order.plannedStart.getTime() + data.durationHours * 3600000);
       order.plannedEnd      = newEnd;
       order._userOverridden = true;
+      order._workMin        = WorkTime.workBetween(order.machineId, order.plannedStart, newEnd) || Math.round(data.durationHours * 60);
       _markChanged(order);
       _rerender();
     });
@@ -533,22 +688,45 @@
   function _handleContextAction(action, ctx) {
     var order = state.orderById[ctx.orderId];
     if (!order) return;
+    if (action === 'details') {
+      var blk = document.querySelector('.gantt-block[data-order-id="' + CSS.escape(order.id) + '"]');
+      if (blk && global.InfoCard) InfoCard.openOrder(order.id, blk);
+      return;
+    }
+    if (action === 'toggle-setup') {
+      if (!order.plannedStart || !order.machineId) return;
+      var m = state.machineById[order.machineId];
+      if (!m) return;
+      _pushHistory();
+      order._skipSetup = !order._skipSetup;
+      order._userOverridden = false;
+      order._workMin = DataService.computeWorkMinutes(order, m, order._skipSetup);
+      order.plannedEnd = WorkTime.addWork(order.machineId, order.plannedStart, order._workMin).end;
+      _markChanged(order);
+      _rerender();
+      _toast(order.id + (order._skipSetup ? ': χωρίς setup' : ': με setup'), 'success');
+      return;
+    }
     if (action === 'remove') {
+      _pushHistory();
       order.machineId    = null;
       order.plannedStart = null;
       order.plannedEnd   = null;
+      order._skipSetup   = false;
       _markChanged(order);
       _rerender();
       _toast('Επιστράφηκε στις μη προγραμματισμένες', 'warn');
     } else if (action === 'edit-duration') {
       if (!order.plannedStart) return;
-      var currentH = (order.plannedEnd - order.plannedStart) / 3600000;
-      var input = prompt('Νέα διάρκεια (ώρες):', currentH.toFixed(1));
+      var currentH = WorkTime.workBetween(order.machineId, order.plannedStart, order.plannedEnd) / 60 ||
+                     (order.plannedEnd - order.plannedStart) / 3600000;
+      var input = prompt('Νέα διάρκεια σε εργάσιμες ώρες (μέσα σε βάρδιες):', currentH.toFixed(1));
       if (input === null) return;
-      var hours = parseFloat(input);
+      var hours = parseFloat(String(input).replace(',', '.'));
       if (isNaN(hours) || hours <= 0) { alert('Άκυρη τιμή'); return; }
-      hours = Math.round(hours * 2) / 2;
-      order.plannedEnd      = new Date(order.plannedStart.getTime() + hours * 3600000);
+      _pushHistory();
+      order._workMin        = Math.round(hours * 60);
+      order.plannedEnd      = WorkTime.addWork(order.machineId, order.plannedStart, order._workMin).end;
       order._userOverridden = true;
       _markChanged(order);
       _rerender();
@@ -557,18 +735,9 @@
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
   function _bindToolbar() {
-    els.btnPrevWeek.addEventListener('click', function () {
-      if (state.dirty && !confirm('Υπάρχουν μη αποθηκευμένες αλλαγές. Συνέχεια;')) return;
-      var prev = new Date(state.weekStart);
-      prev.setDate(prev.getDate() - 7);
-      _setWeek(prev);
-    });
-    els.btnNextWeek.addEventListener('click', function () {
-      if (state.dirty && !confirm('Υπάρχουν μη αποθηκευμένες αλλαγές. Συνέχεια;')) return;
-      var next = new Date(state.weekStart);
-      next.setDate(next.getDate() + 7);
-      _setWeek(next);
-    });
+    els.btnPrevWeek.addEventListener('click', function () { _goWeek(-7); });
+    els.btnNextWeek.addEventListener('click', function () { _goWeek(7); });
+    if (els.btnPrint) els.btnPrint.addEventListener('click', function () { PrintView.open(state, _phaseLabel); });
     els.btnSave.addEventListener('click', _save);
     els.btnExport.addEventListener('click', function () { ExcelExporter.export(state); });
     els.btnAutoPlace.addEventListener('click', _autoPlace);
@@ -583,6 +752,19 @@
   function _bindSearch() {
     els.orderSearch.addEventListener('input', function () {
       _renderUnscheduled(els.orderSearch.value);
+    });
+    els.orderSearch.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var q = els.orderSearch.value.trim().toLowerCase();
+      if (!q) return;
+      var hits = state.orders.filter(function (o) {
+        return o.plannedStart && (o.id.toLowerCase() === q || o.id.toLowerCase().indexOf(q) >= 0 ||
+               (o.description || '').toLowerCase().indexOf(q) >= 0);
+      });
+      hits.sort(function (a, b) { return (a.id.toLowerCase() === q ? 0 : 1) - (b.id.toLowerCase() === q ? 0 : 1); });
+      if (hits.length) { _jumpToOrder(hits[0]); return; }
+      var un = _filteredUnscheduled();
+      _toast(un.length ? 'Δεν είναι στο Gantt — ' + un.length + ' μη προγραμματισμένες ταιριάζουν' : 'Δεν βρέθηκε στην εβδομάδα', 'warn');
     });
   }
 
@@ -601,6 +783,17 @@
 
     els.ganttScroll.addEventListener('contextmenu', function (e) {
       var band = e.target;
+      if (band.classList && band.classList.contains('shift-band') && band.dataset.realShift) {
+        e.preventDefault();
+        e.stopPropagation();
+        var m = state.machineById[band.dataset.machineId];
+        if (!confirm('Αφαίρεση βάρδιας ' + band.dataset.realShift + ' (' + band.dataset.shiftDay + ') της μηχανής ' +
+                     (m ? m.name : band.dataset.machineId) + ' από το Soft1;')) return;
+        _setSoft1Shifts(band.dataset.machineId, band.dataset.shiftDay, function (cur) {
+          cur[+band.dataset.realShift - 1] = 0; return cur;
+        });
+        return;
+      }
       if (band.classList && band.classList.contains('shift-band') && band.dataset.provisional === '1') {
         e.preventDefault();
         e.stopPropagation();
@@ -616,7 +809,17 @@
     els.modalBackdrop.addEventListener('click', function (e) {
       if (e.target === els.modalBackdrop) _closeShiftModal();
     });
-    els.btnShiftSave.addEventListener('click', _saveProvisionalShift);
+    els.btnShiftSave.addEventListener('click', function () {
+      var mode = document.querySelector('input[name="shift-mode"]:checked');
+      if (mode && mode.value === 'soft1') _saveSoft1ShiftFromModal();
+      else _saveProvisionalShift();
+    });
+    document.querySelectorAll('input[name="shift-mode"]').forEach(function (r) {
+      r.addEventListener('change', _syncShiftMode);
+    });
+    els.shiftDate.addEventListener('change', _prefillSoft1Checks);
+    els.shiftMachine.addEventListener('change', _prefillSoft1Checks);
+    if (els.btnProvConvert) els.btnProvConvert.addEventListener('click', _convertProvisionalToSoft1);
 
     if (els.provPill) {
       els.provPill.addEventListener('click', function () {
@@ -643,6 +846,8 @@
     if (prefill && prefill.machineId) els.shiftMachine.value = prefill.machineId;
     if (!els.shiftStart.value) els.shiftStart.value = '06:00';
     if (!els.shiftEnd.value)   els.shiftEnd.value   = '14:00';
+    _prefillSoft1Checks();
+    _syncShiftMode();
     els.modalBackdrop.classList.add('visible');
   }
 
@@ -666,6 +871,7 @@
     if (!_provisionalShiftsByWeek[weekKey]) _provisionalShiftsByWeek[weekKey] = [];
     _provisionalShiftsByWeek[weekKey].push(newShift);
     state.shifts.push(newShift);
+    _rebuildWorkTime();
 
     _closeShiftModal();
     _renderGanttOnly();
@@ -683,6 +889,7 @@
       if (!s.provisional) return true;
       return !(s.date === date && s.machineId === machineId && s.startTime === start && s.endTime === end);
     });
+    _rebuildWorkTime();
     _renderGanttOnly();
     _updateProvPill();
   }
@@ -692,6 +899,7 @@
     var n = (_provisionalShiftsByWeek[_weekKey()] || []).length;
     if (n > 0) { els.provPill.hidden = false; els.provCount.textContent = n; }
     else       { els.provPill.hidden = true; }
+    if (els.btnProvConvert) els.btnProvConvert.hidden = !(n > 0);
   }
 
   function _weekKey() { return _fmtDateShort(state.weekStart); }
@@ -712,19 +920,26 @@
 
     _showLoading(true);
     try {
-      var ok = await DataService.saveOrders(changed);
-      if (ok) {
-        changed.forEach(function (o) {
-          o._origMachineId = o.machineId;
-          o._origStart     = o.plannedStart ? new Date(o.plannedStart) : null;
-          o._origEnd       = o.plannedEnd   ? new Date(o.plannedEnd)   : null;
-        });
-        state.changedOrders = {};
-        state.dirty = false;
-        _updateDirty();
-        _toast('Πρόγραμμα αποθηκεύτηκε επιτυχώς', 'success');
+      var res = await DataService.saveOrders(changed);
+      var failedIds = Object.keys(res.failed);
+      changed.forEach(function (o) {
+        if (res.failed[o.id]) return;                    // keep as changed → user can retry / resolve
+        o._origMachineId = o.machineId;
+        o._origStart     = o.plannedStart ? new Date(o.plannedStart) : null;
+        o._origEnd       = o.plannedEnd   ? new Date(o.plannedEnd)   : null;
+        delete state.changedOrders[o.id];
+      });
+      state.dirty = Object.keys(state.changedOrders).length > 0;
+      _updateDirty();
+      _saveDraftNow();
+      if (!failedIds.length) {
+        _undo = []; _redo = []; _updateHistoryButtons();
+        _toast('Πρόγραμμα αποθηκεύτηκε επιτυχώς (' + (res.saved || changed.length) + ')', 'success');
       } else {
-        _toast('Σφάλμα κατά την αποθήκευση', 'error');
+        var lines = failedIds.slice(0, 12).map(function (id) { return id + ': ' + res.failed[id]; }).join('\n');
+        Soft1Bridge.warn('Αποθηκεύτηκαν ' + (res.saved || 0) + ', απέτυχαν ' + failedIds.length +
+          (res.conflicts ? ' (' + res.conflicts + ' άλλαξαν από άλλο χρήστη — φορτώστε ξανά την εβδομάδα)' : '') +
+          ':\n' + lines);
       }
     } catch (e) {
       _toast('Σφάλμα: ' + (e.message || e), 'error');
@@ -733,37 +948,390 @@
     }
   }
 
-  // ── Auto-place ────────────────────────────────────────────────────────────
+  // ── Auto-place (shift-aware, earliest delivery first, fastest finish) ──────
   function _autoPlace() {
-    var placed = 0;
-    state.orders.forEach(function (order) {
-      if (order.status === 1) return;
-      if (order.machineId && order.plannedStart && order.plannedEnd) return;
-
-      var slot = SchedulerEngine.findFirstAvailableSlot(
-        order, state.machines, state.orders, state.shifts, state.weekStart,
-        state.phaseMachines,
-        function (machine) { return DataService.computeDurationHours(order, machine); }
-      );
-      if (!slot) return;
-
-      order.machineId    = slot.machineId;
-      order.plannedStart = slot.plannedStart;
-      order.plannedEnd   = slot.plannedEnd;
-      _markChanged(order);
-      placed++;
+    var candidates = _filteredUnscheduled();
+    if (!candidates.length) { _toast('Δεν υπάρχουν μη προγραμματισμένες (με τα τρέχοντα φίλτρα)', 'warn'); return; }
+    if (!confirm('Αυτόματη τοποθέτηση ' + candidates.length + ' παραγγελιών' +
+                 (_filtersActive() || (els.orderSearch && els.orderSearch.value) ? ' (φιλτραρισμένες)' : '') +
+                 ' στις διαθέσιμες βάρδιες της εβδομάδας;\nΣειρά: νωρίτερη παράδοση πρώτα, μηχανή που τελειώνει νωρίτερα.')) return;
+    var now = new Date();
+    var minStart = now > state.weekStart ? now : state.weekStart;
+    var weekEnd = new Date(state.weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
+    var placements = SchedulerEngine.autoPlace(candidates, {
+      orders: state.orders, machines: state.machines, phaseMachines: state.phaseMachines,
+      weekStart: state.weekStart, weekEnd: weekEnd, minStart: minStart, chain: state._chain,
+      workMinutes: function (o, m) { return DataService.computeWorkMinutes(o, m); }
     });
-
-    if (placed > 0) {
-      _rerender();
-      _toast('Τοποθετήθηκαν αυτόματα ' + placed + ' παραγγελίες', 'success');
-    } else {
-      _toast('Δεν βρέθηκαν διαθέσιμες θέσεις', 'warn');
-    }
+    if (!placements.length) { _toast('Δεν βρέθηκαν διαθέσιμες θέσεις στις βάρδιες', 'warn'); return; }
+    _pushHistory();
+    placements.forEach(function (p) {
+      p.order.machineId    = p.machineId;
+      p.order.plannedStart = p.plannedStart;
+      p.order.plannedEnd   = p.plannedEnd;
+      p.order._workMin     = p.workMin;
+      p.order._skipSetup   = false;
+      p.order._userOverridden = false;
+      _markChanged(p.order);
+    });
+    _rerender();
+    _toast('Τοποθετήθηκαν ' + placements.length + ' από ' + candidates.length + ' παραγγελίες', 'success');
   }
 
+  // ── Shift-aware span for an order on a machine ───────────────────────────
+  function _computeSpan(orderId, machineId, start, preserveExisting) {
+    var order = state.orderById[orderId], machine = state.machineById[machineId];
+    if (!order || !machine) return null;
+    var MAGNET = 30 * 60000;
+    // Previous block on this machine (closest end at/before the drop point + magnet)
+    var prev = null;
+    state.orders.forEach(function (o) {
+      if (o === order || o.machineId !== machineId || !o.plannedEnd || !o.plannedStart) return;
+      if (+o.plannedEnd <= +start + MAGNET && +o.plannedStart < +start && (!prev || o.plannedEnd > prev.plannedEnd)) prev = o;
+    });
+    var s0 = start, magnet = false;
+    if (prev && Math.abs(+start - +prev.plannedEnd) <= MAGNET) { s0 = prev.plannedEnd; magnet = true; }
+    var skipSetup = !!(magnet && prev.mtrl != null && String(prev.mtrl) === String(order.mtrl));
+    var minutes = (preserveExisting && order._userOverridden && order.machineId === machineId && order._workMin)
+      ? order._workMin
+      : DataService.computeWorkMinutes(order, machine, skipSetup);
+    var span = WorkTime.addWork(machineId, s0, minutes);
+    span.workMin = minutes;
+    span.skipSetup = skipSetup;
+    return span;
+  }
+
+  function _rebuildWorkTime() { WorkTime.build(state.shifts); }
+
+  // ── Phase chain ──────────────────────────────────────────────────────────
+  function _computeChain() {
+    state._chain = SchedulerEngine.buildChainIndex(state.orders, state.mtrlTree);
+    state._chainViol = {};
+    SchedulerEngine.getChainViolations(state.orders, state._chain).forEach(function (v) {
+      state._chainViol[v.order.id] = 'ξεκινά πριν τελειώσει η προηγούμενη φάση ' + v.pred.id +
+        ' (' + _fmtTime(v.pred.plannedEnd) + ' ' + _fmtDateShort(v.pred.plannedEnd) + ')';
+    });
+  }
+
+  // ── Undo / redo ──────────────────────────────────────────────────────────
+  function _snapshot() {
+    var snap = [];
+    state.orders.forEach(function (o) {
+      if (o.machineId || o.plannedStart || state.changedOrders[o.id])
+        snap.push([o.id, o.machineId, o.plannedStart ? +o.plannedStart : null, o.plannedEnd ? +o.plannedEnd : null,
+                   !!o._userOverridden, o._workMin || null, !!o._skipSetup]);
+    });
+    return snap;
+  }
+  function _restore(snap) {
+    var map = {};
+    snap.forEach(function (r) { map[r[0]] = r; });
+    state.orders.forEach(function (o) {
+      if (o.status === 1) return;
+      var r = map[o.id];
+      o.machineId       = r ? r[1] : null;
+      o.plannedStart    = r && r[2] ? new Date(r[2]) : null;
+      o.plannedEnd      = r && r[3] ? new Date(r[3]) : null;
+      o._userOverridden = r ? r[4] : false;
+      o._workMin        = r ? r[5] : null;
+      o._skipSetup      = r ? r[6] : false;
+    });
+    state.changedOrders = {};
+    state.orders.forEach(function (o) { _markChanged(o, true); });
+    state.dirty = Object.keys(state.changedOrders).length > 0;
+    _updateDirty();
+    _scheduleDraftSave();
+    _rerender();
+  }
+  function _pushHistory() {
+    _undo.push(_snapshot());
+    if (_undo.length > 50) _undo.shift();
+    _redo = [];
+    _updateHistoryButtons();
+  }
+  function _doUndo() {
+    if (!_undo.length) return;
+    _redo.push(_snapshot()); _restore(_undo.pop()); _updateHistoryButtons();
+    _toast('Αναίρεση', 'warn');
+  }
+  function _doRedo() {
+    if (!_redo.length) return;
+    _undo.push(_snapshot()); _restore(_redo.pop()); _updateHistoryButtons();
+    _toast('Επανάληψη', 'warn');
+  }
+  function _updateHistoryButtons() {
+    if (els.btnUndo) els.btnUndo.disabled = !_undo.length;
+    if (els.btnRedo) els.btnRedo.disabled = !_redo.length;
+  }
+  function _bindHistory() {
+    if (els.btnUndo) els.btnUndo.addEventListener('click', _doUndo);
+    if (els.btnRedo) els.btnRedo.addEventListener('click', _doRedo);
+  }
+
+  // ── Draft autosave (localStorage, per user + week) ───────────────────────
+  var _draftTimer = null;
+  function _draftKey() { return 'pp-draft:' + (Soft1Bridge.user || '') + ':' + _fmtDate(state.weekStart); }
+  function _scheduleDraftSave() {
+    clearTimeout(_draftTimer);
+    _draftTimer = setTimeout(_saveDraftNow, 800);
+  }
+  function _saveDraftNow() {
+    clearTimeout(_draftTimer);
+    try {
+      var ids = Object.keys(state.changedOrders);
+      if (!ids.length) { localStorage.removeItem(_draftKey()); return; }
+      var changes = ids.map(function (id) {
+        var o = state.orderById[id];
+        return o ? [id, o.machineId, o.plannedStart ? +o.plannedStart : null, o.plannedEnd ? +o.plannedEnd : null,
+                    !!o._userOverridden, o._workMin || null, !!o._skipSetup] : null;
+      }).filter(Boolean);
+      localStorage.setItem(_draftKey(), JSON.stringify({ ts: Date.now(), changes: changes }));
+    } catch (e) { /* storage unavailable — ignore */ }
+  }
+  function _offerDraft() {
+    var draft = null;
+    try { draft = JSON.parse(localStorage.getItem(_draftKey()) || 'null'); } catch (e) { draft = null; }
+    if (!draft || !draft.changes || !draft.changes.length) return;
+    var when = new Date(draft.ts);
+    if (!confirm('Βρέθηκε μη αποθηκευμένο πρόχειρο (' + draft.changes.length + ' αλλαγές, ' +
+                 when.toLocaleString('el-GR') + ').\nΕπαναφορά;')) {
+      try { localStorage.removeItem(_draftKey()); } catch (e) {}
+      return;
+    }
+    _pushHistory();
+    var applied = 0, missing = 0;
+    draft.changes.forEach(function (r) {
+      var o = state.orderById[r[0]];
+      if (!o || o.status === 1) { missing++; return; }
+      o.machineId = r[1]; o.plannedStart = r[2] ? new Date(r[2]) : null; o.plannedEnd = r[3] ? new Date(r[3]) : null;
+      o._userOverridden = r[4]; o._workMin = r[5]; o._skipSetup = r[6];
+      _markChanged(o); applied++;
+    });
+    _rerender();
+    _toast('Επαναφέρθηκαν ' + applied + ' αλλαγές' + (missing ? ' (' + missing + ' δεν βρέθηκαν)' : ''), 'success');
+  }
+
+  // ── Navigation ───────────────────────────────────────────────────────────
+  function _confirmLeave() {
+    if (!state.dirty) return true;
+    _saveDraftNow();
+    return confirm('Υπάρχουν μη αποθηκευμένες αλλαγές (κρατούνται ως πρόχειρο). Συνέχεια;');
+  }
+  function _goWeek(days) {
+    if (!_confirmLeave()) return;
+    var d = new Date(state.weekStart); d.setDate(d.getDate() + days);
+    _setWeek(d);
+  }
+  function _bindNavigation() {
+    if (els.btnToday) els.btnToday.addEventListener('click', function () {
+      if (!_confirmLeave()) return;
+      _setWeek(_getWeekStart(new Date()));
+    });
+    if (els.weekLabel && els.weekPicker) {
+      els.weekLabel.addEventListener('click', function () {
+        try { els.weekPicker.showPicker(); } catch (e) { els.weekPicker.focus(); }
+      });
+      els.weekPicker.addEventListener('change', function () {
+        if (!els.weekPicker.value) return;
+        if (!_confirmLeave()) { els.weekPicker.value = _fmtDate(state.weekStart); return; }
+        _setWeek(_getWeekStart(new Date(els.weekPicker.value + 'T00:00:00')));
+      });
+    }
+    document.addEventListener('keydown', function (e) {
+      var tag = (e.target.tagName || '').toLowerCase();
+      var typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+      if (els.modalBackdrop.classList.contains('visible')) return;
+      if ((e.ctrlKey || e.metaKey) && !typing) {
+        var k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) { e.preventDefault(); _doUndo(); return; }
+        if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); _doRedo(); return; }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (state.dirty) _save(); return; }
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); _goWeek(-7); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); _goWeek(7); }
+    });
+  }
+
+  // ── Search → jump to block ───────────────────────────────────────────────
+  function _jumpToOrder(order) {
+    if (!order || !order.plannedStart) return;
+    var wEnd = new Date(state.weekStart); wEnd.setDate(wEnd.getDate() + 7);
+    if (order.plannedStart >= wEnd || order.plannedEnd <= state.weekStart) {
+      _toast(order.id + ' είναι σε άλλη εβδομάδα (' + _fmtDateShort(order.plannedStart) + ')', 'warn');
+      return;
+    }
+    state._highlightId = order.id;
+    GanttRenderer.renderBlocks(state);
+    DragDropManager.attachBlockListeners();
+    var blk = els.ganttScroll.querySelector('.gantt-block[data-order-id="' + CSS.escape(order.id) + '"]');
+    if (blk) {
+      var x = GanttRenderer.dateToX(order.plannedStart) + GanttRenderer.LABEL_WIDTH;
+      els.ganttScroll.scrollLeft = Math.max(0, x - 200);
+      blk.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }
+    setTimeout(function () {
+      if (state._highlightId !== order.id) return;
+      state._highlightId = null;
+      var b = els.ganttScroll.querySelector('.gantt-block.highlight');
+      if (b) b.classList.remove('highlight');
+    }, 4000);
+  }
+
+  // ── Session expiry warning ───────────────────────────────────────────────
+  function _startSessionWatch() {
+    if (!Soft1Bridge.isWeb || !els.sessionBanner) return;
+    if (els.btnRelogin) els.btnRelogin.addEventListener('click', function () {
+      _saveDraftNow();
+      window.location.href = '/login.html';
+    });
+    function tick() {
+      var exp = Soft1Bridge.expiresAt;
+      if (!exp) return;
+      var left = Math.round((exp - Date.now()) / 60000);
+      if (left > 10) { els.sessionBanner.hidden = true; return; }
+      els.sessionBanner.hidden = false;
+      els.sessionText.textContent = left > 0
+        ? 'Η σύνδεση λήγει σε ' + left + ' λεπτά — αποθηκεύστε τις αλλαγές σας.'
+        : 'Η σύνδεση έληξε. Οι αλλαγές κρατήθηκαν ως πρόχειρο — συνδεθείτε ξανά για να συνεχίσετε.';
+      if (left <= 0) _saveDraftNow();
+    }
+    tick();
+    setInterval(tick, 30000);
+  }
+
+  // ── Production calendar (Soft1 CCCFXPCAL) ────────────────────────────────
+  function _updateCalBanner() {
+    if (els.calBanner) els.calBanner.hidden = state.calendarExists;
+  }
+  function _bindCalendarUi() {
+    if (els.btnCalCreate) els.btnCalCreate.addEventListener('click', function () { _createCalendarWeek('previous'); });
+    if (els.btnCalCreateEmpty) els.btnCalCreateEmpty.addEventListener('click', function () { _createCalendarWeek('none'); });
+  }
+  async function _createCalendarWeek(copy) {
+    _showLoading(true);
+    try {
+      var r = await DataService.calendar('create', { monday: _fmtDate(state.weekStart), copy: copy });
+      if (r.success === false) throw new Error(r.error || 'Αποτυχία');
+      _toast('Δημιουργήθηκε η εβδομάδα ' + (r.code || '') + (r.copiedFrom ? ' (αντιγραφή από ' + r.copiedFrom + ')' : ''), 'success');
+      await _reloadShifts();
+    } catch (e) {
+      Soft1Bridge.warn('Σφάλμα δημιουργίας ημερολογίου:\n' + (e.message || e));
+    } finally { _showLoading(false); }
+  }
+
+  // Re-read only the shifts (keeps unsaved planner changes)
+  async function _reloadShifts() {
+    var sh = await DataService.getShifts(state.weekStart, state.weekEnd);
+    state.calendarExists = !(sh.programmeRows === 0);
+    (_provisionalShiftsByWeek[_weekKey()] || []).forEach(function (p) { sh.push(p); });
+    state.shifts = sh;
+    _rebuildWorkTime();
+    _updateCalBanner();
+    _renderGanttOnly();
+    _renderIssues();
+  }
+
+  // Current Soft1 flags (21) of a machine for this week, from the loaded programme rows
+  function _machineWeekFlags(machineId) {
+    var f = []; for (var i = 0; i < 21; i++) f.push(0);
+    state.shifts.forEach(function (s) {
+      if (s.machineId !== machineId || !s.isProgrammeRow || s.isCarryOver) return;
+      var day = Math.round((new Date(s.date + 'T00:00:00') - state.weekStart) / 86400000);
+      if (day >= 0 && day < 7 && s.shiftNum >= 1 && s.shiftNum <= 3) f[day * 3 + s.shiftNum - 1] = 1;
+    });
+    return f;
+  }
+
+  // Apply fn(dayFlags[3]) → dayFlags to one machine/day and save to Soft1
+  async function _setSoft1Shifts(machineId, dateStr, fn) {
+    return _saveSoft1Changes([{ machineId: machineId, dateStr: dateStr, fn: fn }]);
+  }
+
+  async function _saveSoft1Changes(changes) {
+    _showLoading(true);
+    try {
+      var monday = _fmtDate(state.weekStart);
+      if (!state.calendarExists) {
+        var c = await DataService.calendar('create', { monday: monday, copy: 'previous' });
+        if (c.success === false) throw new Error(c.error || 'Αποτυχία δημιουργίας εβδομάδας');
+        await _reloadShifts();
+      }
+      var byMachine = {};
+      changes.forEach(function (ch) {
+        var flags = byMachine[ch.machineId] || (byMachine[ch.machineId] = _machineWeekFlags(ch.machineId));
+        var day = Math.round((new Date(ch.dateStr + 'T00:00:00') - state.weekStart) / 86400000);
+        if (day < 0 || day > 6) return;
+        var cur = flags.slice(day * 3, day * 3 + 3);
+        var next = ch.fn(cur.slice());
+        for (var k = 0; k < 3; k++) flags[day * 3 + k] = next[k] ? 1 : 0;
+      });
+      var lines = Object.keys(byMachine).map(function (mid) { return { rsrc: mid, s: byMachine[mid].join('') }; });
+      if (!lines.length) return true;
+      var r = await DataService.calendar('save', { monday: monday, lines: lines });
+      if (r.success === false) throw new Error((r.errors || []).map(function (e) { return e.error; }).join('\n') || r.error);
+      await _reloadShifts();
+      _toast('Οι βάρδιες αποθηκεύτηκαν στο Soft1', 'success');
+      return true;
+    } catch (e) {
+      Soft1Bridge.warn('Σφάλμα αποθήκευσης βαρδιών:\n' + (e.message || e));
+      return false;
+    } finally { _showLoading(false); }
+  }
+
+  function _syncShiftMode() {
+    var mode = document.querySelector('input[name="shift-mode"]:checked');
+    var soft1 = !mode || mode.value === 'soft1';
+    if (els.shiftSoft1Box) els.shiftSoft1Box.hidden = !soft1;
+    if (els.shiftProvBox)  els.shiftProvBox.hidden  = soft1;
+  }
+  function _prefillSoft1Checks() {
+    if (!els.shiftS[0] || !els.shiftDate.value || !els.shiftMachine.value) return;
+    var flags = _machineWeekFlags(els.shiftMachine.value);
+    var day = Math.round((new Date(els.shiftDate.value + 'T00:00:00') - state.weekStart) / 86400000);
+    for (var k = 0; k < 3; k++) els.shiftS[k].checked = day >= 0 && day < 7 && !!flags[day * 3 + k];
+  }
+  async function _saveSoft1ShiftFromModal() {
+    var date = els.shiftDate.value, mach = els.shiftMachine.value;
+    if (!date || !mach) { alert('Συμπληρώστε ημερομηνία και μηχανή'); return; }
+    var day = Math.round((new Date(date + 'T00:00:00') - state.weekStart) / 86400000);
+    if (day < 0 || day > 6) { alert('Η ημερομηνία πρέπει να είναι μέσα στην εμφανιζόμενη εβδομάδα'); return; }
+    var want = els.shiftS.map(function (c) { return c.checked ? 1 : 0; });
+    _closeShiftModal();
+    await _setSoft1Shifts(mach, date, function () { return want; });
+  }
+
+  // Provisional shifts → Soft1 shift flags (06–14 → 1, 14–22 → 2, 22–06 → 3 of the starting day)
+  async function _convertProvisionalToSoft1() {
+    var provs = _provisionalShiftsByWeek[_weekKey()] || [];
+    if (!provs.length) return;
+    var changes = [];
+    provs.forEach(function (p) {
+      var a = _hm(p.startTime), b = _hm(p.endTime);
+      var hits = [];
+      if (a < 14 * 60 && b > 6 * 60)  hits.push({ d: p.date, n: 1 });
+      if (a < 22 * 60 && b > 14 * 60) hits.push({ d: p.date, n: 2 });
+      if (b > 22 * 60)                hits.push({ d: p.date, n: 3 });
+      if (a < 6 * 60) {
+        var prev = new Date(p.date + 'T00:00:00'); prev.setDate(prev.getDate() - 1);
+        hits.push({ d: _fmtDate(prev), n: 3 });
+      }
+      hits.forEach(function (h) {
+        changes.push({ machineId: p.machineId, dateStr: h.d, fn: function (cur) { cur[h.n - 1] = 1; return cur; } });
+      });
+    });
+    if (!confirm('Μετατροπή ' + provs.length + ' προσωρινών βαρδιών σε κανονικές βάρδιες στο Soft1;')) return;
+    var ok = await _saveSoft1Changes(changes);
+    if (ok) {
+      _provisionalShiftsByWeek[_weekKey()] = [];
+      await _reloadShifts();
+      _updateProvPill();
+    }
+  }
+  function _hm(t) { var p = String(t).split(':'); return (+p[0]) * 60 + (+p[1] || 0); }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function _markChanged(order) {
+  function _markChanged(order, quiet) {
     // Detect if values differ from baseline
     var changed = (order.machineId !== order._origMachineId)
       || _datesDiffer(order.plannedStart, order._origStart)
@@ -774,7 +1342,10 @@
     } else {
       delete state.changedOrders[order.id];
     }
+    if (quiet) return;
+    state.dirty = Object.keys(state.changedOrders).length > 0;
     _updateDirty();
+    _scheduleDraftSave();
   }
 
   function _datesDiffer(a, b) {

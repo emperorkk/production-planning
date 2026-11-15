@@ -15,7 +15,8 @@ const DATASETS = {
   GetUnscheduledOrders: ['offset', 'pageSize'],
   GetProductionOrders:  ['weekStart', 'weekEnd'],
   GetShifts:            ['monday'],
-  GetMtrlTree:          []
+  GetMtrlTree:          [],
+  GetOrderDetails:      ['findoc']
 };
 
 export async function handleData(request, env) {
@@ -59,6 +60,10 @@ function validOrder(o) {
   if (o.machine != null && !/^\d+$/.test(String(o.machine))) return false;
   if (o.start != null && !DATE_RX.test(o.start)) return false;
   if (o.end   != null && !DATE_RX.test(o.end))   return false;
+  // Optimistic-lock values (as loaded) — optional
+  if (o.origMachine != null && !/^\d+$/.test(String(o.origMachine))) return false;
+  if (o.origStart   != null && !DATE_RX.test(o.origStart)) return false;
+  if (o.origEnd     != null && !DATE_RX.test(o.origEnd))   return false;
   return true;
 }
 
@@ -82,7 +87,12 @@ export async function handleSave(request, env) {
     findoc:  Number(o.findoc),
     machine: o.machine == null ? null : Number(o.machine),
     start:   o.start ?? null,
-    end:     o.end   ?? null
+    end:     o.end   ?? null,
+    ...('origStart' in o || 'origEnd' in o || 'origMachine' in o ? {
+      origMachine: o.origMachine == null ? null : Number(o.origMachine),
+      origStart:   o.origStart ?? null,
+      origEnd:     o.origEnd   ?? null
+    } : {})
   }));
 
   try {

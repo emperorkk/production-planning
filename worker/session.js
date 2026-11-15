@@ -7,7 +7,7 @@
  */
 
 const COOKIE_NAME = 'pp_sid';
-const SESSION_TTL = 60 * 60 * 8;   // 8 hours
+export const SESSION_TTL = 60 * 60 * 8;   // 8 hours
 
 function randomId() {
   const bytes = new Uint8Array(32);

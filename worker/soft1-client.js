@@ -98,7 +98,7 @@ export async function loginAndAuthenticate(env, { username, password, company, b
  * Call a function of the custom Soft1 AJS web service (soft1/Foxline.planning.js).
  *   POST <SOFT1_API_URL>/JS/<SOFT1_JS_SCRIPT>/<fn>   body: { clientID, ...params }
  */
-async function callJS(env, clientID, fn, params = {}) {
+export async function callJS(env, clientID, fn, params = {}) {
   const script = env.SOFT1_JS_SCRIPT || 'Foxline.planning';
   const res = await fetch(endpoint(env, `JS/${script}/${fn}`), {
     method:  'POST',

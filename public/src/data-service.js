@@ -177,7 +177,9 @@
       } else {
         rows = await Soft1Bridge.dataset('GetShifts', { monday: monIso });
       }
-      return _explodeShifts(rows, weekStart);
+      var shifts = _explodeShifts(rows, weekStart);
+      shifts.programmeRows = rows.length;   // 0 → no CCCFXPCAL week in Soft1
+      return shifts;
     },
 
     // ── MTRL production tree (loaded once, used for combination hints) ─────
@@ -205,30 +207,56 @@
     },
 
     // ── Save: one batched call to Foxline.planning/SaveSchedule ──────────
+    // Sends the values as loaded (orig*) so Soft1 can refuse orders changed by someone else.
+    // Returns { ok, saved, failed: { orderId: message }, conflicts }
     saveOrders: async function (changedOrders) {
+      function fmt(d) { return d ? _fmtDateTime(d).slice(0, 16) : null; }
       var payload = changedOrders
         .filter(function (o) { return o.status !== 1; })      // never write completed orders
         .map(function (o) {
           return {
-            findoc:  parseInt(o.id, 10),
-            machine: o.machineId == null ? null : parseInt(o.machineId, 10),
-            start:   o.plannedStart ? _fmtDateTime(o.plannedStart).slice(0, 16) : null,
-            end:     o.plannedEnd   ? _fmtDateTime(o.plannedEnd).slice(0, 16)   : null
+            findoc:      parseInt(o.id, 10),
+            machine:     o.machineId == null ? null : parseInt(o.machineId, 10),
+            start:       fmt(o.plannedStart),
+            end:         fmt(o.plannedEnd),
+            origMachine: o._origMachineId == null ? null : parseInt(o._origMachineId, 10),
+            origStart:   fmt(o._origStart),
+            origEnd:     fmt(o._origEnd)
           };
         });
-      if (!payload.length) return true;
-      try {
-        var res = await Soft1Bridge.saveSchedule(payload);
-        if (res.errors && res.errors.length) {
-          console.warn('SaveSchedule errors', res.errors);
-          Soft1Bridge.warn('Αποτυχία αποθήκευσης για ' + res.errors.length + ' εντολές:\n' +
-            res.errors.slice(0, 10).map(function (e) { return e.findoc + ': ' + e.error; }).join('\n'));
-        }
-        return res.ok !== false && !(res.errors && res.errors.length);
-      } catch (e) {
-        Soft1Bridge.warn('Σφάλμα αποθήκευσης: ' + (e.message || e));
-        return false;
+      var result = { ok: true, saved: 0, failed: {}, conflicts: 0 };
+      if (!payload.length) return result;
+      var res = await Soft1Bridge.saveSchedule(payload);
+      result.saved     = res.saved || 0;
+      result.conflicts = res.conflicts || 0;
+      (res.errors || []).forEach(function (e) {
+        result.failed[String(e.findoc)] = (e.conflict ? '⚠ ' : '') + e.error;
+      });
+      result.ok = res.ok !== false && !Object.keys(result.failed).length;
+      return result;
+    },
+
+    // ── Order details (info card) ──────────────────────────────────────────
+    getOrderDetails: async function (orderId) {
+      if (Soft1Bridge.isMock) {
+        var o = Soft1Bridge.mockData.productionOrders.filter(function (r) { return r.id === orderId; })[0];
+        return o ? { id: o.id, fincode: o.id, itemCode: String(o.mtrl), itemName: o.description,
+                     kilos: o.kilos, linearMetres: o.linearMetres, deliveryDate: o.deliveryDate,
+                     salesOrder: o.salesOrderRef, customer: 'Demo πελάτης', status: o.status, phase: o.phase } : null;
       }
+      var rows = await Soft1Bridge.dataset('GetOrderDetails', { findoc: parseInt(orderId, 10) });
+      return rows[0] || null;
+    },
+
+    // ── Production calendar (CCCFXPCAL) ────────────────────────────────────
+    calendar: function (action, body) { return Soft1Bridge.calendar(action, body || {}); },
+
+    // Working minutes for an order on a machine (setup optional — skipped on combined runs)
+    computeWorkMinutes: function (order, machine, skipSetup) {
+      if (!order || !machine) return 60;
+      var b = DataService.durationBreakdown(order, machine);
+      var min = (skipSetup ? 0 : b.setupMin) + b.productionMin + b.waitMin;
+      return Math.max(15, Math.round(min / 5) * 5);
     },
 
     // ── Duration calculation ───────────────────────────────────────────────

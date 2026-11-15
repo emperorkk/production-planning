@@ -62,7 +62,7 @@
   }
 
   // ─── Session cache (populated by /api/me on web boot) ────────────────────
-  var _webSession = { user: null, company: null, branch: null };
+  var _webSession = { user: null, company: null, branch: null, expiresAt: null };
 
   // ─── Named dataset via /api/data → Foxline.planning/<name> ───────────────
   async function _webDataset(name, params) {
@@ -79,6 +79,52 @@
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
     return data.rows || [];
+  }
+
+  // Production calendar via /api/calendar → Foxline.planning (full response object)
+  async function _webCalendar(action, body) {
+    const res = await fetch('/api/calendar', {
+      method:  'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      body:    JSON.stringify(Object.assign({ action: action }, body))
+    });
+    if (res.status === 401) {
+      window.location.replace('/login.html');
+      throw new Error('Session expired');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || (data.error && !data.errors)) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;
+  }
+
+  // Mock calendar store (file:// demo): monday → { rsrc: flags21 }
+  var _mockCal = {};
+  function _mockCalendar(action, body) {
+    var machines = MOCK_DATA.machines;
+    if (action === 'get') {
+      var wk = _mockCal[body.monday];
+      return Promise.resolve({ success: true, exists: !!wk, header: { code: 'demo', wk: '' },
+        data: machines.map(function (m) {
+          var row = { rsrc: m.id, code: m.id, name: m.name, phase: m.phase, phaseName: '' };
+          var f = wk ? (wk[m.id] || '000000000000000000000') : '000000000000000000000';
+          for (var i = 0; i < 21; i++) row['S' + (Math.floor(i / 3) + 1) + (i % 3 + 1)] = +f.charAt(i);
+          return row;
+        }) });
+    }
+    if (action === 'create') {
+      var flags = {}; machines.forEach(function (m) { flags[m.id] = body.copy === 'none' ? '000000000000000000000' : '111111111111111111000'; });
+      _mockCal[body.monday] = flags;
+      return Promise.resolve({ success: true, code: 'demo', copiedFrom: null });
+    }
+    if (action === 'save') {
+      var w = _mockCal[body.monday] = _mockCal[body.monday] || {};
+      body.lines.forEach(function (l) { w[l.rsrc] = l.s; });
+      return Promise.resolve({ success: true, updated: body.lines.length, inserted: 0, errors: [] });
+    }
+    if (action === 'fill')  return Promise.resolve({ success: true, created: [], skipped: [], errors: [] });
+    if (action === 'weeks') return Promise.resolve({ success: true, data: [] });
+    return Promise.reject(new Error('Unknown action'));
   }
 
   // Native Soft1 getData via /api/record → { TABLE: [ {field: value} ] }
@@ -125,6 +171,7 @@
       _webSession.user    = data.user;
       _webSession.company = data.company;
       _webSession.branch  = data.branch;
+      _webSession.expiresAt = data.expiresAt || null;
     } catch (_) { /* keep defaults */ }
   }
 
@@ -155,6 +202,14 @@
       }
       return _webRecord(object, key);
     },
+
+    // Production calendar actions: get | weeks | create | save | fill
+    calendar: function (action, body) {
+      if (MODE === 'mock') return _mockCalendar(action, body || {});
+      return _webCalendar(action, body || {});
+    },
+
+    get expiresAt() { return MODE === 'web' ? _webSession.expiresAt : null; },
 
     // Batched write of planner results.
     saveSchedule: async function (orders) {
