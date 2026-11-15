@@ -1,23 +1,24 @@
-import { runSql, saveSchedule } from '../soft1-client.js';
-import { getSession }        from '../session.js';
+import { getDataset, saveSchedule } from '../soft1-client.js';
+import { getSession }                from '../session.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 function json(body, init = {}) {
   return new Response(JSON.stringify(body), { ...init, headers: { ...JSON_HEADERS, ...(init.headers || {}) } });
 }
 
-// Reject anything that isn't a pure SELECT on the SQL endpoint.
-// Same guard runs again inside Foxline.planning/getData — this one just fails fast.
-function isSafeSelect(sql) {
-  const s = String(sql || '').trim().replace(/^\(+/, '');
-  if (!/^(select|with)\b/i.test(s)) return false;
-  // Deny ; chained statements and DML keywords
-  if (/;\s*\S/.test(s))                   return false;
-  if (/\b(insert|update|delete|drop|truncate|alter|create|exec|execute|merge|grant|revoke)\b/i.test(s)) return false;
-  return true;
-}
+// Read-side endpoint. The browser names a dataset; the SQL lives in
+// soft1/Foxline.planning.js. Only these functions may be called, with only these params.
+const DATASETS = {
+  GetMachines:          [],
+  GetPhaseMachines:     [],
+  GetOrdersInWeek:      ['weekStart', 'weekEnd'],
+  GetUnscheduledOrders: ['offset', 'pageSize'],
+  GetProductionOrders:  ['weekStart', 'weekEnd'],
+  GetShifts:            ['monday'],
+  GetMtrlTree:          []
+};
 
-export async function handleSql(request, env) {
+export async function handleData(request, env) {
   if (request.method !== 'POST') return json({ error: 'POST required' }, { status: 405 });
   const session = await getSession(request, env);
   if (!session) return json({ error: 'Not authenticated' }, { status: 401 });
@@ -25,13 +26,19 @@ export async function handleSql(request, env) {
   let body;
   try { body = await request.json(); }
   catch { return json({ error: 'Invalid JSON' }, { status: 400 }); }
-  const sql = body.sql || body.SQL;
-  if (!sql || !isSafeSelect(sql)) {
-    return json({ error: 'Only SELECT queries allowed on /api/sql' }, { status: 400 });
+
+  const name    = body.dataset;
+  const allowed = Object.hasOwn(DATASETS, name) ? DATASETS[name] : null;
+  if (!allowed) return json({ error: 'Unknown dataset: ' + name }, { status: 400 });
+
+  const params = {};
+  for (const k of allowed) {
+    const v = body.params?.[k];
+    if (v !== undefined && v !== null) params[k] = String(v);
   }
 
   try {
-    const rows = await runSql(env, session.clientID, sql);
+    const rows = await getDataset(env, session.clientID, name, params);
     return json({ ok: true, rows });
   } catch (err) {
     return json({ error: err.message || String(err) }, { status: 502 });
@@ -39,7 +46,7 @@ export async function handleSql(request, env) {
 }
 
 // Write-side endpoint. Takes structured order fields — never SQL.
-// Foxline.planning/saveSchedule builds the UPDATEs and re-validates everything
+// Foxline.planning/SaveSchedule builds the UPDATEs and re-validates everything
 // (completed orders, company, types), so this is only a shape check.
 const DATE_RX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 const MAX_ORDERS = 2000;

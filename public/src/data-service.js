@@ -14,155 +14,10 @@
   };
   var NIGHT_CARRY_END = '06:00';   // shift 3 spills into next day until this time
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // QUERIES — replace nothing in production except where noted.
-  // ═══════════════════════════════════════════════════════════════════════════
-  function _company() { return Soft1Bridge.isMock ? 1000 : Soft1Bridge.company; }
-
-  var QUERIES = {
-
-    // ── Machines / Resources (RSRC) ────────────────────────────────────────
-    machines: function () {
-      return "SELECT RSRC AS id" +
-             ", NAME AS name" +
-             ", CCCFXSTAGE AS phase" +
-             ", SETUPTIME AS setuptime" +
-             ", WAITTIME  AS waittime" +
-             ", MPRDQTY   AS average_speed_in_metres_per_minute" +
-             " FROM RSRC" +
-             " WHERE SODTYPE = 25 AND RSRCTYPE < 50 AND COMPANY = " + _company();
-    },
-
-    // ── Phase ↔ machine eligibility (SPCOSTGROUP) ──────────────────────────
-    phaseMachines: function () {
-      return "SELECT CCCRSRC AS machine, CCCSTAGE AS phase, (select name from STAGE where COMPANY=SPCOSTGROUP and STAGE=CCCSTAGE) phaseName" +
-             " FROM SPCOSTGROUP" +
-             " WHERE CCCRSRC IS NOT NULL AND COMPANY = " + _company();
-    },
-
-    // ── Production orders (one row = one phase = one Gantt block) ──────────
-    // Returns: every non-completed order in the last 6 months + completed orders
-    // whose planned start (DATE01) falls within the current displayed week.
-    // Common SELECT/FROM that both order queries share — kept as a function so
-    // every call regenerates with current company.
-    _ordersBaseSelect: function () {
-      return "SELECT F.FINDOC AS id" +
-             ", M.CODE + ' ' + M.NAME AS description" +
-             ", isnull(LS.DELIVDATE,L0.DELIVDATE) AS deliveryDate" +
-             ", L0.QTY1 AS kilos" +
-             ", L0.QTY2 AS linearMetres" +
-             ", L0.DATE01 AS plannedStartDataTime" +
-             ", L0.DATE02 AS plannedFinishDataTime" +
-             ", D.MTRSTS AS status" +
-             ", D.STAGE AS phase" +
-             ", F.CCCFXRSRC AS machine" +
-             ", L0.FINDOCS AS salesOrderRef" +
-             ", L0.MTRL AS mtrl" +
-             " FROM FINDOC F" +
-             " INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
-             " INNER JOIN MTRLINES L0 ON L0.FINDOC = F.FINDOC AND L0.MTRTYPE = 1" +
-             " LEFT OUTER JOIN MTRLINES LS ON LS.FINDOC = L0.FINDOCS AND LS.MTRLINES=L0.MTRLINESS" +
-             " INNER JOIN MTRL M ON M.MTRL = L0.MTRL" +
-             " WHERE F.SOSOURCE = 5171" +
-             " AND F.COMPANY = " + _company() +
-             " AND isnull(LS.DELIVDATE,L0.DELIVDATE) >= " + Soft1Bridge.nowFn() + " - 180";
-    },
-
-    // STAGE 1 — small set of orders touching the visible week (renders gantt blocks).
-    ordersInWeek: function (weekStartIso, weekEndIso) {
-      var ws = "'" + weekStartIso + " 00:00:00'";
-      var we = "'" + weekEndIso   + " 23:59:59'";
-      return QUERIES._ordersBaseSelect() +
-             " AND (L0.DATE01 BETWEEN " + ws + " AND " + we +
-             "   OR L0.DATE02 BETWEEN " + ws + " AND " + we + ")" +
-             " ORDER BY L0.DELIVDATE";
-    },
-
-    // STAGE 2 — paged unscheduled orders (DATE01 IS NULL). Stream in batches.
-    unscheduledOrdersPage: function (offset, pageSize) {
-      return QUERIES._ordersBaseSelect() +
-             " AND D.MTRSTS <> 1" +
-             " AND L0.DATE01 IS NULL" +
-             " ORDER BY L0.DELIVDATE" +
-             " OFFSET " + offset + " ROWS FETCH NEXT " + pageSize + " ROWS ONLY";
-    },
-
-    // (kept for backwards compat / Excel export full-load fallback)
-    productionOrders: function (weekStartIso, weekEndIso) {
-      return "SELECT F.FINDOC AS id" +
-             ", M.CODE + ' ' + M.NAME AS description" +
-             ", isnull(LS.DELIVDATE,L0.DELIVDATE) AS deliveryDate" +
-             ", L0.QTY1 AS kilos" +
-             ", L0.QTY2 AS linearMetres" +
-             ", L0.DATE01 AS plannedStartDataTime" +
-             ", L0.DATE02 AS plannedFinishDataTime" +
-             ", D.MTRSTS AS status" +
-             ", D.STAGE AS phase" +
-             ", F.CCCFXRSRC AS machine" +
-             ", L0.FINDOCS AS salesOrderRef" +
-             ", L0.MTRL AS mtrl" +
-             " FROM FINDOC F" +
-             " INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
-             " INNER JOIN MTRLINES L0 ON L0.FINDOC = F.FINDOC AND L0.MTRTYPE = 1" +
-			 " LEFT OUTER JOIN MTRLINES LS ON LS.FINDOC = L0.FINDOCS AND LS.MTRLINES=L0.MTRLINESS"+
-             " INNER JOIN MTRL M ON M.MTRL = L0.MTRL" +
-             " WHERE F.SOSOURCE = 5171" +
-             " AND F.COMPANY = " + _company() +
-             " AND isnull(LS.DELIVDATE,L0.DELIVDATE) >= " + Soft1Bridge.nowFn() + " - 180" +
-             " AND (D.MTRSTS <> 1" +
-             "      OR L0.DATE01 BETWEEN '" + weekStartIso + " 00:00:00' AND '" + weekEndIso + " 23:59:59'" +
-             "      OR L0.DATE02 BETWEEN '" + weekStartIso + " 00:00:00' AND '" + weekEndIso + " 23:59:59')" +			 
-             " ORDER BY L0.DELIVDATE";
-    },
-
-    // ── Shift programme — explodes into per-machine, per-day shift records ─
-    // {0} = ISO Monday-of-week date string, e.g. '2026-05-11'
-    shifts: function (mondayIso) {
-      return "SELECT L.RSRC AS machine" +
-             ", A.DATE01, A.DATE02, A.DATE03, A.DATE04, A.DATE05, A.DATE06, A.DATE07" +
-             ", L.S11, L.S12, L.S13" +
-             ", L.S21, L.S22, L.S23" +
-             ", L.S31, L.S32, L.S33" +
-             ", L.S41, L.S42, L.S43" +
-             ", L.S51, L.S52, L.S53" +
-             ", L.S61, L.S62, L.S63" +
-             ", L.S71, L.S72, L.S73" +
-             " FROM CCCFXPCAL A" +
-             " INNER JOIN CCCFXPCALLNS L ON A.CCCFXPCAL = L.CCCFXPCAL" +
-             " WHERE A.COMPANY = " + _company() +
-             " AND A.DATE01 = '" + mondayIso + "'";
-    },
-
-    // ── MTRL production tree (consumed for "combine same-PRDMTRL" hint) ────
-    mtrlTree: function () {
-      return "SELECT MTRL, LINENUM" +
-             ", RAW1MTRL, RAW2MTRL, RAW3MTRL, RAW4MTRL, PRDMTRL" +
-             ", STAGE AS phase" +
-             ", ISNULL(PRDQTY1, 1) AS kilos" +
-             ", PRDQTY2 AS metres" +
-             " FROM CCCFXPRNOMINAL" +
-             " ORDER BY MTRL, LINENUM";
-    }
-  };
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // WRITE-BACK SQL — two UPDATEs per changed order
-  // ═══════════════════════════════════════════════════════════════════════════
-  var WRITE = {
-    setMachine: function (orderId, machineId) {
-      return "UPDATE FINDOC SET CCCFXRSRC = " + (machineId == null ? "NULL" : "'" + _esc(machineId) + "'") +
-             " WHERE FINDOC = " + parseInt(orderId, 10);
-    },
-    setSchedule: function (orderId, plannedStart, plannedEnd) {
-      return "UPDATE MTRLINES" +
-             " SET DATE01 = " + (plannedStart ? "'" + plannedStart + "'" : "NULL") +
-             ", DATE02 = " + (plannedEnd   ? "'" + plannedEnd   + "'" : "NULL") +
-             " WHERE FINDOC = " + parseInt(orderId, 10) + " AND MTRTYPE = 1";
-    }
-  };
+  // All SQL lives in soft1/Foxline.planning.js — this file only calls datasets by name
+  // (Soft1Bridge.dataset → /api/data → Foxline.planning/<name>).
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
-  function _esc(s) { return String(s).replace(/'/g, "''"); }
   function _pad(n) { return n < 10 ? '0' + n : String(n); }
   function _fmtDate(d) {
     return d.getFullYear() + '-' + _pad(d.getMonth() + 1) + '-' + _pad(d.getDate());
@@ -240,7 +95,7 @@
           };
         });
       }
-      var rows = await Soft1Bridge.query(QUERIES.machines());
+      var rows = await Soft1Bridge.dataset('GetMachines');
       return rows.map(function (r) {
         return {
           id:           String(r.id),
@@ -260,7 +115,7 @@
       if (Soft1Bridge.isMock) {
         rows = Soft1Bridge.mockData.phaseMachines;
       } else {
-        rows = await Soft1Bridge.query(QUERIES.phaseMachines());
+        rows = await Soft1Bridge.dataset('GetPhaseMachines');
       }
       var phaseMachines = {};
       var machinePhases = {};
@@ -290,7 +145,7 @@
         });
         return _mapOrderRows(rows);
       }
-      var rows = await Soft1Bridge.query(QUERIES.ordersInWeek(_fmtDate(weekStart), _fmtDate(weekEnd)));
+      var rows = await Soft1Bridge.dataset('GetOrdersInWeek', { weekStart: _fmtDate(weekStart), weekEnd: _fmtDate(weekEnd) });
       return _mapOrderRows(rows);
     },
 
@@ -302,14 +157,14 @@
         });
         return _mapOrderRows(all.slice(offset, offset + pageSize));
       }
-      var rows = await Soft1Bridge.query(QUERIES.unscheduledOrdersPage(offset, pageSize));
+      var rows = await Soft1Bridge.dataset('GetUnscheduledOrders', { offset: offset, pageSize: pageSize });
       return _mapOrderRows(rows);
     },
 
     // (legacy, used as a fallback only)
     getProductionOrders: async function (weekStart, weekEnd) {
       if (Soft1Bridge.isMock) return _mapOrderRows(Soft1Bridge.mockData.productionOrders);
-      var rows = await Soft1Bridge.query(QUERIES.productionOrders(_fmtDate(weekStart), _fmtDate(weekEnd)));
+      var rows = await Soft1Bridge.dataset('GetProductionOrders', { weekStart: _fmtDate(weekStart), weekEnd: _fmtDate(weekEnd) });
       return _mapOrderRows(rows);
     },
 
@@ -320,7 +175,7 @@
       if (Soft1Bridge.isMock) {
         rows = _mockShiftRows(weekStart);
       } else {
-        rows = await Soft1Bridge.query(QUERIES.shifts(monIso));
+        rows = await Soft1Bridge.dataset('GetShifts', { monday: monIso });
       }
       return _explodeShifts(rows, weekStart);
     },
@@ -331,7 +186,7 @@
       if (Soft1Bridge.isMock) {
         rows = Soft1Bridge.mockData.mtrlTree.map(function (r) { return Object.assign({}, r); });
       } else {
-        rows = await Soft1Bridge.query(QUERIES.mtrlTree());
+        rows = await Soft1Bridge.dataset('GetMtrlTree');
       }
       return rows.map(function (r) {
         return {
@@ -349,46 +204,31 @@
       });
     },
 
-    // ── Save: two UPDATEs per changed order ────────────────────────────────
+    // ── Save: one batched call to Foxline.planning/SaveSchedule ──────────
     saveOrders: async function (changedOrders) {
-      // Web mode: one batched call to Foxline.planning/saveSchedule (builds the UPDATEs server-side)
-      if (Soft1Bridge.isWeb) {
-        var payload = changedOrders
-          .filter(function (o) { return o.status !== 1; })
-          .map(function (o) {
-            return {
-              findoc:  parseInt(o.id, 10),
-              machine: o.machineId == null ? null : parseInt(o.machineId, 10),
-              start:   o.plannedStart ? _fmtDateTime(o.plannedStart).slice(0, 16) : null,
-              end:     o.plannedEnd   ? _fmtDateTime(o.plannedEnd).slice(0, 16)   : null
-            };
-          });
-        if (!payload.length) return true;
-        try {
-          var res = await Soft1Bridge.saveSchedule(payload);
-          if (res.errors && res.errors.length) {
-            console.warn('saveSchedule errors', res.errors);
-            Soft1Bridge.warn('Αποτυχία αποθήκευσης για ' + res.errors.length + ' εντολές:\n' +
-              res.errors.slice(0, 10).map(function (e) { return e.findoc + ': ' + e.error; }).join('\n'));
-          }
-          return res.ok !== false && !(res.errors && res.errors.length);
-        } catch (e) {
-          Soft1Bridge.warn('Σφάλμα αποθήκευσης: ' + (e.message || e));
-          return false;
+      var payload = changedOrders
+        .filter(function (o) { return o.status !== 1; })      // never write completed orders
+        .map(function (o) {
+          return {
+            findoc:  parseInt(o.id, 10),
+            machine: o.machineId == null ? null : parseInt(o.machineId, 10),
+            start:   o.plannedStart ? _fmtDateTime(o.plannedStart).slice(0, 16) : null,
+            end:     o.plannedEnd   ? _fmtDateTime(o.plannedEnd).slice(0, 16)   : null
+          };
+        });
+      if (!payload.length) return true;
+      try {
+        var res = await Soft1Bridge.saveSchedule(payload);
+        if (res.errors && res.errors.length) {
+          console.warn('SaveSchedule errors', res.errors);
+          Soft1Bridge.warn('Αποτυχία αποθήκευσης για ' + res.errors.length + ' εντολές:\n' +
+            res.errors.slice(0, 10).map(function (e) { return e.findoc + ': ' + e.error; }).join('\n'));
         }
+        return res.ok !== false && !(res.errors && res.errors.length);
+      } catch (e) {
+        Soft1Bridge.warn('Σφάλμα αποθήκευσης: ' + (e.message || e));
+        return false;
       }
-
-      // Embedded / mock: two UPDATEs per order via RUNSQL
-      var allOk = true;
-      for (var i = 0; i < changedOrders.length; i++) {
-        var o = changedOrders[i];
-        if (o.status === 1) continue;   // never write to completed orders
-        var startStr = o.plannedStart ? _fmtDateTime(o.plannedStart) : null;
-        var endStr   = o.plannedEnd   ? _fmtDateTime(o.plannedEnd)   : null;
-        if (!(await Soft1Bridge.exec(WRITE.setMachine(o.id, o.machineId))))       allOk = false;
-        if (!(await Soft1Bridge.exec(WRITE.setSchedule(o.id, startStr, endStr)))) allOk = false;
-      }
-      return allOk;
     },
 
     // ── Duration calculation ───────────────────────────────────────────────

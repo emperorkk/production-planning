@@ -1,27 +1,17 @@
-/* Soft1Bridge — three modes, same API:
-     1. EMBEDDED  — page launched inside Soft1 via x=external; uses window.external COM
-     2. WEB       — page served by the Cloudflare Worker; uses fetch('/api/sql') + session cookie
-     3. MOCK      — opened as a local file with no Soft1 reachable; uses built-in demo data
+/* Soft1Bridge — two modes, same API:
+     1. WEB   — page served by the Cloudflare Worker; fetch('/api/data' | '/api/save') + session cookie
+     2. MOCK  — opened as a local file (file://); uses built-in demo data
+
+   The embedded x=external (window.external COM) mode is DEPRECATED and frozen in
+   legacy/embedded/ — no further updates there.
 
    Every method returns a Promise so DataService can `await` regardless of mode. */
 (function (global) {
   'use strict';
 
   // ─── Mode detection ───────────────────────────────────────────────────────
-  var hasCOM = typeof window.external !== 'undefined' &&
-               window.external &&
-               typeof window.external.GetSqlDataSet === 'function';
-
-  // If the page was fetched over HTTP from a server (not file://) and there's
-  // no COM, assume WEB mode. Otherwise MOCK.
   var isHttp = (location.protocol === 'http:' || location.protocol === 'https:');
-
-  var MODE =
-    hasCOM          ? 'embedded' :
-    isHttp          ? 'web'      :
-                      'mock';
-
-  var xplorer = (MODE === 'embedded') ? window.external : null;
+  var MODE   = isHttp ? 'web' : 'mock';
 
   // ─── Mock data (unchanged) ────────────────────────────────────────────────
   var MOCK_DATA = {
@@ -74,33 +64,13 @@
   // ─── Session cache (populated by /api/me on web boot) ────────────────────
   var _webSession = { user: null, company: null, branch: null };
 
-  // ─── Embedded (COM) query — sync wrapped in Promise.resolve ──────────────
-  function _embeddedQuery(sql) {
-    var rows = [];
-    try {
-      var ds = xplorer.GetSqlDataSet(sql, null);
-      ds.first;
-      while (!ds.Eof) {
-        var row = {};
-        for (var i = 0; i < ds.fieldCount; i++) {
-          row[ds.fieldName(i)] = ds.fields(i);
-        }
-        rows.push(row);
-        ds.next;
-      }
-    } catch (e) {
-      xplorer.WARNING('Query error:\n' + (e.description || e.message || String(e)));
-    }
-    return rows;
-  }
-
-  // ─── Web query via /api/sql ──────────────────────────────────────────────
-  async function _webQuery(sql) {
-    const res = await fetch('/api/sql', {
+  // ─── Named dataset via /api/data → Foxline.planning/<name> ───────────────
+  async function _webDataset(name, params) {
+    const res = await fetch('/api/data', {
       method:  'POST',
       headers: { 'content-type': 'application/json' },
       credentials: 'same-origin',
-      body:    JSON.stringify({ sql: sql })
+      body:    JSON.stringify({ dataset: name, params: params || {} })
     });
     if (res.status === 401) {
       window.location.replace('/login.html');
@@ -111,7 +81,7 @@
     return data.rows || [];
   }
 
-  // Batched schedule write via /api/save → Foxline.planning/saveSchedule.
+  // Batched schedule write via /api/save → Foxline.planning/SaveSchedule.
   // orders: [{ findoc, machine|null, start|null, end|null }]  (dates 'YYYY-MM-DD HH:MM')
   async function _webSave(orders) {
     const res = await fetch('/api/save', {
@@ -146,55 +116,31 @@
     mode:   MODE,
     isMock: (MODE === 'mock'),
     isWeb:  (MODE === 'web'),
-    isEmbedded: (MODE === 'embedded'),
 
     // One-time init (called by UIController before loading data)
     init: async function () {
       if (MODE === 'web') await _loadWebSession();
     },
 
-    query: async function (sql) {
-      if (MODE === 'mock')     return [];
-      if (MODE === 'embedded') return _embeddedQuery(sql);
-      return _webQuery(sql);
+    // Named dataset (GetMachines, GetOrdersInWeek, ...). Mock mode returns [] —
+    // DataService serves mock data itself.
+    dataset: async function (name, params) {
+      if (MODE === 'mock') return [];
+      return _webDataset(name, params);
     },
 
-    exec: async function (sql) {
-      if (MODE === 'mock')     { console.log('[MOCK WRITE]', sql); return true; }
-      if (MODE === 'embedded') {
-        try { xplorer.RUNSQL(sql, null); return true; }
-        catch (e) {
-          xplorer.WARNING('Update error:\n' + (e.description || e.message || String(e)));
-          return false;
-        }
-      }
-      throw new Error('exec() is not available in web mode — use saveSchedule()');
-    },
-
-    // Web mode only — batched write of planner results.
+    // Batched write of planner results.
     saveSchedule: async function (orders) {
       if (MODE === 'mock') { console.log('[MOCK SAVE]', orders); return { ok: true, saved: orders.length, skipped: 0, errors: [] }; }
-      if (MODE !== 'web')  throw new Error('saveSchedule() is web-mode only');
       return _webSave(orders);
     },
 
-    evalExpr: function (expr) {
-      if (MODE === 'embedded') return xplorer.EVAL(expr);
-      return '';
-    },
-
-    get dbType()  {
-      if (MODE === 'embedded') return xplorer.sys.dbType;
-      return 3;   // assume MSSQL for web; adjust via env if ever needed
-    },
     get user()    {
-      if (MODE === 'embedded') return xplorer.sys.user;
-      if (MODE === 'web')      return _webSession.user || 'web-user';
+      if (MODE === 'web') return _webSession.user || 'web-user';
       return 'demo';
     },
     get company() {
-      if (MODE === 'embedded') return xplorer.sys.COMPANY || xplorer.sys.company;
-      if (MODE === 'web')      return _webSession.company || 1000;
+      if (MODE === 'web') return _webSession.company || 1000;
       return 1000;
     },
     get branch() {
@@ -202,18 +148,7 @@
       return this.company;
     },
 
-    warn: function (msg) {
-      if (MODE === 'embedded') { xplorer.WARNING(msg); return; }
-      alert(msg);
-    },
-
-    nowFn: function () {
-      switch (this.dbType) {
-        case 1:  return 'SYSDATE';
-        case 5:  return 'NOW()';
-        default: return 'GETDATE()';
-      }
-    },
+    warn: function (msg) { alert(msg); },
 
     logout: async function () {
       if (MODE !== 'web') return;

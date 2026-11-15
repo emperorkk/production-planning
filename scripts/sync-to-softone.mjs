@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Copy the public/ folder into the SoftOne installation directory so the
- * embedded x=external page stays in sync with the repo.
+ * LEGACY / DEPRECATED — the embedded x=external planner is frozen (no further updates).
+ * Copies the frozen snapshot in legacy/embedded/ into the SoftOne installation directory.
  *
- * Usage:   npm run sync-embedded
+ * Usage:   npm run sync-embedded-legacy
  * Target:  C:\SoftOne\Vlachos Bros\   (override with SOFT1_PATH env var)
  */
 import { copyFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { dirname, join, resolve }                         from 'node:path';
 import { fileURLToPath }                                  from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const SRC_ROOT  = join(REPO_ROOT, 'public');
+const SRC_ROOT  = join(REPO_ROOT, 'legacy', 'embedded');
 const DST_ROOT  = process.env.SOFT1_PATH || 'C:\\SoftOne\\Vlachos Bros';
 
 const COPY = [

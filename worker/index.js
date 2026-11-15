@@ -8,12 +8,12 @@
  *   POST /api/login         → Soft1 Web Services login + authenticate, set session
  *   POST /api/logout        → clear session
  *   GET  /api/me            → whoami
- *   POST /api/sql           → run SELECT via Soft1 (uses session clientID)
- *   POST /api/save          → write schedule via Foxline.planning/saveSchedule
+ *   POST /api/data          → named dataset via Foxline.planning/<Get...>
+ *   POST /api/save          → write schedule via Foxline.planning/SaveSchedule
  */
 
 import { handleLogin, handleLogout, handleMe } from './routes/auth.js';
-import { handleSql, handleSave }               from './routes/sql.js';
+import { handleData, handleSave }              from './routes/data.js';
 import { getSession }                          from './session.js';
 
 const PUBLIC_PATHS = new Set([
@@ -31,7 +31,7 @@ export default {
       if (path === '/api/login')  return handleLogin(request, env);
       if (path === '/api/logout') return handleLogout(request, env);
       if (path === '/api/me')     return handleMe(request, env);
-      if (path === '/api/sql')    return handleSql(request, env);
+      if (path === '/api/data')   return handleData(request, env);
       if (path === '/api/save')   return handleSave(request, env);
 
       // ── Root redirect ──────────────────────────────────────────────────

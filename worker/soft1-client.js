@@ -90,24 +90,24 @@ async function callJS(env, clientID, fn, params = {}) {
 }
 
 /**
- * Run a SELECT through Foxline.planning/getData.
+ * Call a named dataset of Foxline.planning (GetMachines, GetOrdersInWeek, ...).
  * Returns an array of plain objects keyed by column alias.
  */
-export async function runSql(env, clientID, sql) {
-  const data = await callJS(env, clientID, 'getData', { sql });
-  if (data.success === false) throw new Error(data.error || 'getData failed');
+export async function getDataset(env, clientID, name, params = {}) {
+  const data = await callJS(env, clientID, name, params);
+  if (data.success === false) throw new Error(data.error || (name + ' failed'));
   return Array.isArray(data.data) ? data.data : [];
 }
 
 /**
- * Write machine + planned dates through Foxline.planning/saveSchedule.
+ * Write machine + planned dates through Foxline.planning/SaveSchedule.
  * orders: [{ findoc, machine|null, start|null, end|null }]  (dates 'YYYY-MM-DD HH:MM')
  * Returns { success, saved, skipped, errors[] }.
  */
 export async function saveSchedule(env, clientID, orders) {
-  const data = await callJS(env, clientID, 'saveSchedule', { orders });
+  const data = await callJS(env, clientID, 'SaveSchedule', { orders });
   if (data.success === false && !Array.isArray(data.errors)) {
-    throw new Error(data.error || 'saveSchedule failed');
+    throw new Error(data.error || 'SaveSchedule failed');
   }
   return data;
 }
@@ -117,7 +117,7 @@ export async function saveSchedule(env, clientID, orders) {
  */
 export async function pingSession(env, clientID) {
   try {
-    const data = await callJS(env, clientID, 'ping');
+    const data = await callJS(env, clientID, 'Ping');
     return data.success !== false;
   } catch {
     return false;

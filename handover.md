@@ -10,12 +10,18 @@ A visual **production-scheduling planner** for Vlachos Bros, a factory running S
 
 The planner lets a shop-floor scheduler drag production orders onto a weekly Gantt grid of machines, respects shift calendars and phase-machine eligibility, computes block duration from machine speed + setup/wait times, and writes the plan back to Soft1. All UI is in **Greek**.
 
-Two rendering modes from one codebase:
+**Architecture (Worker-only since 2026-11-15):**
 
-| Mode | Where it runs | Soft1 access | Auth |
-|---|---|---|---|
-| **Embedded** | Inside Soft1 itself, launched as an `x=external` menu entry | `window.external` COM — sync `GetSqlDataSet` / `RUNSQL` | Current Soft1 session |
-| **Web** | Cloudflare Worker (static assets + API) | `fetch('/api/sql')` → Worker → Soft1 Web Services over HTTPS | Soft1 Web Accounts login (login.html) |
+```
+browser ──/api/data {dataset, params}──▶ Worker ──/s1services/JS/Foxline.planning/<Get...>──▶ Soft1
+        ──/api/save {orders[]}────────▶        ──/s1services/JS/Foxline.planning/SaveSchedule─▶
+```
+
+- Auth: Soft1 Web Accounts login (`login.html` → built-in `login` + `authenticate` services).
+- **All SQL lives in `soft1/Foxline.planning.js`** (Soft1 AJS web service). The browser never sends SQL.
+- `file://` open of `public/production-planner.html` = **mock mode** (demo data).
+
+> ⚠️ **Embedded mode (Soft1 `x=external` / `window.external` COM) is DEPRECATED.** Frozen in `legacy/embedded/` — **no further updates**. Do not port new features there.
 
 ---
 
@@ -23,7 +29,7 @@ Two rendering modes from one codebase:
 
 - **GitHub:** https://github.com/emperorkk/production-planning (the username is `emperorkk` — no separators; `emperor_kk` and `emperor-kk` both fail to resolve)
 - **Local clone:** `C:\Users\konst\production-planning\`
-- **Embedded deploy target:** `C:\SoftOne\Vlachos Bros\` (SoftOne install dir — do NOT `git init` there; it has hundreds of binaries)
+- **Legacy embedded deploy target (deprecated):** `C:\SoftOne\Vlachos Bros\` (SoftOne install dir — do NOT `git init` there; it has hundreds of binaries)
 - **Git config:** user `kkourentzes@gmail.com`, Windows cert store (`http.sslBackend=schannel`) required for push
 - **Attribution footer on commits:** `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` (from the harness reminder)
 
@@ -34,8 +40,8 @@ public/                           ← Worker's static assets root
 ├── login.html                    ← Soft1 Web Account login form (web mode only)
 ├── production-planner.html       ← main app (both modes use this entry)
 └── src/
-    ├── soft1-bridge.js           ← auto-detects embedded | web | mock; ALL async
-    ├── data-service.js           ← SQL definitions + async query wrappers
+    ├── soft1-bridge.js           ← web | mock; dataset(name, params) + saveSchedule(orders); ALL async
+    ├── data-service.js           ← dataset calls + row mapping + shift explode (NO SQL)
     ├── scheduler-engine.js       ← conflict / deadline / utilisation / auto-place
     ├── gantt-renderer.js         ← DOM-based Gantt (no framework, no SVG library)
     ├── drag-drop-manager.js      ← HTML5 DnD + edge resize
@@ -50,12 +56,13 @@ worker/
 ├── session.js                    ← KV-backed sessions (random id), HttpOnly cookie
 └── routes/
     ├── auth.js                   ← /api/login, /api/logout, /api/me
-    └── sql.js                    ← /api/sql (SELECT guard), /api/save (structured orders)
+    └── data.js                   ← /api/data (dataset whitelist), /api/save (structured orders)
 soft1/
-└── Foxline.planning.js           ← Soft1 AJS web service (ping | getData | saveSchedule) — paste into Soft1
+└── Foxline.planning.js           ← Soft1 AJS web service — ALL SQL (Get* datasets + SaveSchedule) — paste into Soft1
+legacy/embedded/                  ← DEPRECATED x=external planner — FROZEN, no further updates
 wrangler.jsonc                    ← Worker config (KV + env vars)
-package.json                      ← npm scripts: dev | deploy | tail | sync-embedded
-scripts/sync-to-softone.mjs       ← mirror public/ → C:\SoftOne\Vlachos Bros\
+package.json                      ← npm scripts: dev | deploy | tail | sync-embedded-legacy
+scripts/sync-to-softone.mjs       ← LEGACY: mirror legacy/embedded/ → C:\SoftOne\Vlachos Bros\
 README.md                         ← user-facing setup
 handover.md                       ← this file
 ```
@@ -182,22 +189,36 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
 - ✅ Light theme enforced (`color-scheme: light` + explicit colors) — Soft1 sometimes injects dark CSS
 - ✅ **Cloudflare Worker scaffold** (wrangler.jsonc, worker/index.js, routes, Soft1 client, KV sessions)
 - ✅ **Login page** (`public/login.html` + `src/login.js`) — Soft1 Web Accounts flow
-- ✅ **Dual-mode bridge** — Soft1Bridge auto-detects embedded | web | mock; ALL methods async
+- ✅ **Worker-only** — embedded mode deprecated & frozen in `legacy/embedded/`; bridge is web | mock
+- ✅ **AJS web service `soft1/Foxline.planning.js`** — named datasets (SQL moved out of the browser) + batched `SaveSchedule`
 - ✅ **GitHub repo** initial commit pushed to https://github.com/emperorkk/production-planning
 
 ### Pending (needs user action before Worker can go live)
 1. ~~**Fill `wrangler.jsonc`:**~~ DONE — `SOFT1_API_URL = https://01104398142024.oncloud.gr/s1services`; `SOFT1_COMPANY`/`SOFT1_BRANCH` left empty on purpose → falls back to first company/branch returned by `/login`; `account_id` set to **ONECODE Support** (`af6abc318e022147698714a45b9ba92e`)
 2. ~~**Create KV namespace**~~ DONE — `production-planning-SESSIONS` (`2bf8852d955c4bcbb1def4e4d3ccef37`) on ONECODE Support
-3. **Deploy the Soft1 AJS web service `Foxline.planning`** — source in `soft1/Foxline.planning.js`. Reached at `https://01104398142024.oncloud.gr/s1services/JS/Foxline.planning/<fn>` with body `{ clientID, ...params }`. Functions:
-   - `ping` — session check
-   - `getData` — `{ sql }` → `{ success, count, data:[rows] }`. SELECT-only guard; colons inside string literals rewritten as `'+CHAR(58)+'` (Soft1 treats `:x` as a param marker)
-   - `saveSchedule` — `{ orders:[{findoc, machine|null, start|null, end|null}] }` (dates `YYYY-MM-DD HH:MM`) → builds both UPDATEs server-side (dates via `DATEADD(MINUTE, n, 'YYYYMMDD')`, no colons), skips `MTRSTS=1`, checks `SOSOURCE=5171` + `X.SYS.COMPANY`. Returns `{ success, saved, skipped, errors[] }`
-   The built-in `SqlData` service is NOT used (it only runs stored SQL by name).
+3. **Deploy the Soft1 AJS web service `Foxline.planning`** — source in `soft1/Foxline.planning.js`. Reached at `https://01104398142024.oncloud.gr/s1services/JS/Foxline.planning/<fn>` with body `{ clientID, ...params }`:
+
+   | Function | Params | Returns |
+   |---|---|---|
+   | `Ping` | — | `{ success, user, company }` |
+   | `GetMachines` | — | `{ success, count, data:[rows] }` |
+   | `GetPhaseMachines` | — | 〃 |
+   | `GetOrdersInWeek` | `weekStart`, `weekEnd` (YYYY-MM-DD) | 〃 |
+   | `GetUnscheduledOrders` | `offset`, `pageSize` (≤1000) | 〃 |
+   | `GetProductionOrders` | `weekStart`, `weekEnd` | 〃 |
+   | `GetShifts` | `monday` (YYYY-MM-DD) | 〃 |
+   | `GetMtrlTree` | — | 〃 |
+   | `SaveSchedule` | `orders:[{findoc, machine\|null, start\|null, end\|null}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, errors[] }` |
+
+   - Company always from `X.SYS.COMPANY`; params validated (ISO dates / ints) before going into SQL.
+   - Colons inside SQL string literals are rewritten as `'+CHAR(58)+'` (Soft1 treats `:x` as a param marker).
+   - `SaveSchedule` builds both UPDATEs server-side (dates via `DATEADD(MINUTE, n, 'YYYYMMDD')`), skips `MTRSTS=1`, checks `SOSOURCE=5171` + company.
+   - The built-in `SqlData` service is NOT used (it only runs stored SQL by name).
 4. **Optional:** `npx wrangler secret put SOFT1_APP_ID` if the default `703` isn't right for Vlachos Bros.
 5. **Test the login flow end-to-end** — the exact field names returned by `/login` / `/authenticate` may vary per Soft1 version. The client in `worker/soft1-client.js` assumes the standard shape; adjust if needed.
 
 ### Known limitations / future work
-- **Date math in queries** uses `GETDATE()` (MSSQL). `Soft1Bridge.nowFn()` picks between `GETDATE()` / `SYSDATE` / `NOW()` based on `dbType`, but in web mode `dbType` is hardcoded to 3 (MSSQL). If Vlachos Bros isn't on MSSQL this needs fixing.
+- **Date math in queries** uses `GETDATE()` (MSSQL) directly in `Foxline.planning.js`.
 - **`CCCFXPCALLNS`** currently doesn't have `STARTTIME`/`ENDTIME` columns — user plans to add them. When that happens, replace `SHIFT_TIMES` constant with per-row values.
 - **Phase names** come from a subquery `(SELECT NAME FROM STAGE WHERE COMPANY=SPCOSTGROUP AND STAGE=CCCSTAGE)` — note the join against `SPCOSTGROUP` (table name used as implicit column alias). If results are wrong, verify this subquery against real schema.
 - **Multi-phase "combine runs" hint** (same `PRDMTRL` can skip setup): `state.mtrlTree` is loaded from `CCCFXPRNOMINAL` but not yet consumed by any logic.
@@ -222,10 +243,12 @@ npm run deploy    # wrangler deploy
 npm run tail      # live logs
 ```
 
-### Keep the embedded version in sync
-After editing anything in `public/`, mirror it into the Soft1 install folder:
+### Update the Soft1 AJS service
+After editing `soft1/Foxline.planning.js`, paste it into the `Foxline.planning` script in Soft1. (Worker deploys don't touch it.)
+
+### Legacy embedded (DEPRECATED — frozen, no further updates)
 ```bash
-npm run sync-embedded   # copies public/* → C:\SoftOne\Vlachos Bros\ (skips login.html/login.js)
+npm run sync-embedded-legacy   # copies legacy/embedded/* → C:\SoftOne\Vlachos Bros\
 ```
 
 ### Git
@@ -272,11 +295,11 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 5. **Soft1 returns null dates as 01/01/1970** (unix epoch). `_parseDate` rejects anything with `getFullYear() < 1990`.
 6. **Orders scheduled in OTHER weeks** must be filtered out of both the Gantt (would clamp to edge) and the unscheduled panel (would wrongly re-offer them). Done in both places.
 7. **The `SPCOSTGROUP` subquery for phaseName** uses `WHERE COMPANY=SPCOSTGROUP` — this is Soft1 convention using table name as alias; it's not a typo.
-8. **Embedded mode is sync COM; web mode is async fetch** — bridge wraps both as `async`. If you see a non-awaited `.query()` call somewhere, that's a bug.
-9. **Soft1 `nowFn()` in web mode hardcodes MSSQL (`GETDATE()`)** — fine for Vlachos Bros but will break on other DBs.
-10. **Writes differ per mode** — embedded uses `data-service.js WRITE` SQL via `RUNSQL`; web sends structured orders to `/api/save` → `Foxline.planning/saveSchedule`, which builds its own UPDATEs. A new write-back field must be added in BOTH `WRITE` and `soft1/Foxline.planning.js saveSchedule` (+ `validOrder` in `worker/routes/sql.js`).
+8. **Bridge is async** — if you see a non-awaited `Soft1Bridge.dataset()` / `saveSchedule()` call, that's a bug.
+9. **Embedded is frozen** — `legacy/embedded/` must not receive new features or fixes. Everything goes to `public/` + `worker/` + `soft1/`.
+10. **New dataset = 3 places**: function in `soft1/Foxline.planning.js` + entry (name → allowed params) in `DATASETS` in `worker/routes/data.js` + caller in `data-service.js`. Unlisted names/params are rejected by the Worker.
 11. **AJS = ES3** — no `JSON.parse`, arrow functions or `Array.isArray`; use `eval(ds.JSON)` for dataset → rows (as in `Production.scale`).
-12. **Unverified:** whether `ds.JSON` keeps column-alias case (`plannedStartDataTime`, `average_speed_in_metres_per_minute`) and its datetime string format. Check the first `getData` response.
+12. **Unverified:** whether `ds.JSON` keeps column-alias case (`plannedStartDataTime`, `average_speed_in_metres_per_minute`) and its datetime string format. Check the first `GetMachines` / `GetOrdersInWeek` response.
 
 ---
 
@@ -284,7 +307,7 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 
 - **Terse responses** — short status, no trailing summaries unless asked
 - **Ask before major refactors** — the user says "Provide feedback before moving on to making any changes" when a design question is on the table; honour that pattern
-- **User edits SQL queries manually** — they'll paste updated queries in chat, often with inline tweaks (e.g. adding `ISNULL(LS.DELIVDATE, L0.DELIVDATE)` or correcting `A.RSRC` → `L.RSRC`); apply their exact SQL rather than rewriting it
+- **User edits SQL queries manually** (now in `soft1/Foxline.planning.js`) — they'll paste updated queries in chat, often with inline tweaks (e.g. adding `ISNULL(LS.DELIVDATE, L0.DELIVDATE)` or correcting `A.RSRC` → `L.RSRC`); apply their exact SQL rather than rewriting it
 - **Greek UI labels throughout** (Πρόγραμμα Παραγωγής, Μη Προγραμματισμένες, Αυτόματο, Έξοδος, etc.)
 - **One file-naming quirk:** `xlsx.mini.min.js` had to be renamed to `xlsx.min.js` to match the HTML reference
 
@@ -294,8 +317,8 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 
 | Task | Where to look / change |
 |---|---|
-| Add a new SELECT query | `public/src/data-service.js` → `QUERIES` object + a new async method on `DataService`; no Worker changes needed (any SELECT passes the guard) |
-| Add a new write-back field | `public/src/data-service.js` → `WRITE` (embedded) + `saveOrders` payload (web) AND `soft1/Foxline.planning.js` → `saveSchedule` AND `worker/routes/sql.js` → `validOrder` |
+| Add / change a query | `soft1/Foxline.planning.js` (new `Get...` function) → `worker/routes/data.js` `DATASETS` → `public/src/data-service.js` caller. Changing only the SQL of an existing dataset = AJS only |
+| Add a new write-back field | `soft1/Foxline.planning.js` → `SaveSchedule` AND `worker/routes/data.js` → `validOrder` AND `public/src/data-service.js` → `saveOrders` payload |
 | Change the shift calculation | `public/src/data-service.js` → `SHIFT_TIMES` + `_explodeShifts()` |
 | Change block appearance | `public/src/gantt-renderer.js` → `renderBlocks()` + CSS in `styles.css` |
 | Change drop validation | `public/src/ui-controller.js` → `DragDropManager.on('drop', ...)` handler |
@@ -308,5 +331,5 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 
 - **Get the Worker deployed** — walk the user through the 3 setup steps (§4 Pending) with their actual S1Services URL
 - **Validate the login flow** against real Soft1 — the login/authenticate response shape in `loginAndAuthenticate()` is best-effort; may need tweaks once we see real responses
-- **Deploy `soft1/Foxline.planning.js`** on Soft1 and test `ping` → `getData` → `saveSchedule`
+- **Deploy `soft1/Foxline.planning.js`** on Soft1 and test `Ping` → `GetMachines` → `GetOrdersInWeek` → `SaveSchedule`
 - **Possibly add Cloudflare Access** in front of the Worker for extra auth layer before the Soft1 login (CF Access = org SSO, then Soft1 login = app-level)

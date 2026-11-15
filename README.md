@@ -1,13 +1,16 @@
 # Production Planning — Vlachos Bros
 
-Visual production-scheduling planner for a Soft1 ERP environment. Runs in **two modes** from one shared codebase:
+Visual production-scheduling planner for a Soft1 ERP environment, served by a **Cloudflare Worker**:
 
-| Mode | Served by | Data access | Auth |
-|---|---|---|---|
-| **Embedded** | Soft1 (opened as `x=external` page) | `window.external` COM → direct SQL | Soft1 session |
-| **Web** | Cloudflare Worker | `fetch('/api/sql')` → Soft1 Web Services | Soft1 Web Accounts login |
+```
+browser ──/api/data, /api/save──▶ Worker ──/s1services/JS/Foxline.planning/<fn>──▶ Soft1
+```
 
-Both modes render the same UI — the only file that changes behavior per environment is `public/src/soft1-bridge.js`, which auto-detects the mode at boot.
+- **All SQL lives in the Soft1 AJS web service** `soft1/Foxline.planning.js`. The browser only calls datasets by name; it never sends SQL.
+- Auth = Soft1 Web Accounts login (`login.html`).
+- Opening `public/production-planner.html` as a local file runs **mock mode** (demo data, no Soft1).
+
+> ⚠️ **Embedded mode (Soft1 `x=external` page) is DEPRECATED** — frozen in `legacy/embedded/`, no further updates. All operations go through the Worker.
 
 ---
 
@@ -16,10 +19,10 @@ Both modes render the same UI — the only file that changes behavior per enviro
 ```
 public/                           ← served as static assets by the Worker
 ├── login.html                    ← web-only login page
-├── production-planner.html       ← main app (both modes use this entry)
+├── production-planner.html       ← main app
 └── src/
-    ├── soft1-bridge.js           ← mode detection (embedded | web | mock)
-    ├── data-service.js           ← SQL definitions + query wrappers (async)
+    ├── soft1-bridge.js           ← web | mock — /api/data + /api/save
+    ├── data-service.js           ← dataset calls + row mapping (no SQL)
     ├── scheduler-engine.js       ← conflict / deadline / utilisation logic
     ├── gantt-renderer.js         ← SVG/DOM Gantt chart
     ├── drag-drop-manager.js      ← HTML5 DnD + resize
@@ -32,15 +35,18 @@ public/                           ← served as static assets by the Worker
 worker/                           ← Cloudflare Worker (nodejs_compat)
 ├── index.js                      ← entry — routes, static assets, auth gate
 ├── soft1-client.js               ← Soft1 Web Services HTTP client
-├── session.js                    ← KV-backed signed sessions
+├── session.js                    ← KV-backed sessions (random id)
 └── routes/
     ├── auth.js                   ← /api/login, /api/logout, /api/me
-    └── sql.js                    ← /api/sql (SELECT only), /api/save (structured schedule write)
-soft1/Foxline.planning.js         ← Soft1 AJS web service used by the Worker
+    └── data.js                   ← /api/data (named datasets), /api/save (structured schedule write)
+
+soft1/Foxline.planning.js         ← Soft1 AJS web service — ALL planner SQL lives here
+
+legacy/embedded/                  ← DEPRECATED x=external planner — frozen, no further updates
 
 wrangler.jsonc                    ← Worker config + KV + env vars
 package.json                      ← npm scripts (dev, deploy, tail)
-scripts/sync-to-softone.mjs       ← copies public/ → C:\SoftOne\Vlachos Bros\ for embedded use
+scripts/sync-to-softone.mjs       ← LEGACY: copies legacy/embedded/ → C:\SoftOne\Vlachos Bros\
 ```
 
 ---
@@ -66,7 +72,18 @@ scripts/sync-to-softone.mjs       ← copies public/ → C:\SoftOne\Vlachos Bros
 
 4. In Soft1, create the AJS web service **Foxline.planning** from `soft1/Foxline.planning.js`.
    The Worker calls `<SOFT1_API_URL>/JS/Foxline.planning/<fn>` with `{ clientID, ...params }`:
-   `ping`, `getData` (`{ sql }`, SELECT only) and `saveSchedule` (`{ orders: [...] }`).
+
+   | Function | Params | Returns |
+   |---|---|---|
+   | `Ping` | — | `{ success, user, company }` |
+   | `GetMachines` | — | `{ success, count, data }` |
+   | `GetPhaseMachines` | — | 〃 |
+   | `GetOrdersInWeek` | `weekStart`, `weekEnd` (YYYY-MM-DD) | 〃 |
+   | `GetUnscheduledOrders` | `offset`, `pageSize` | 〃 |
+   | `GetProductionOrders` | `weekStart`, `weekEnd` | 〃 |
+   | `GetShifts` | `monday` (YYYY-MM-DD) | 〃 |
+   | `GetMtrlTree` | — | 〃 |
+   | `SaveSchedule` | `orders: [{findoc, machine, start, end}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, errors }` |
 
 5. Run locally:
    ```bash
@@ -81,24 +98,21 @@ scripts/sync-to-softone.mjs       ← copies public/ → C:\SoftOne\Vlachos Bros
 
 ---
 
-## Setup — Embedded (Soft1 x=external)
+## Legacy — Embedded (Soft1 x=external) — DEPRECATED
 
-Any time you change files under `public/`, mirror them into the Soft1 installation folder:
+The embedded planner is frozen in `legacy/embedded/` and receives **no further updates**.
+It is kept only for reference/fallback. To reinstall that frozen copy into Soft1:
 
 ```bash
-npm run sync-embedded
+npm run sync-embedded-legacy
 ```
-
-The script copies `public/production-planner.html` and `public/src/` into `C:\SoftOne\Vlachos Bros\`, keeping the embedded version in sync with the repo.
-
-Then open the page from inside Soft1 via a `x=external` menu entry pointing to `production-planner.html`.
 
 ---
 
 ## Security notes
 
-- `/api/sql` accepts **only SELECT / WITH** queries; `Foxline.planning/getData` re-checks the same rule, since any Soft1 user could call the AJS endpoint directly.
-- `/api/save` accepts structured orders only (no SQL). `Foxline.planning/saveSchedule` builds the UPDATEs itself, validates types, and refuses completed (`MTRSTS=1`), foreign-company or non-5171 documents.
+- No SQL crosses the wire. `/api/data` only forwards whitelisted dataset names + params; each AJS function validates its params (dates, ints) and takes the company from `X.SYS.COMPANY`. Any Soft1 user can call the AJS endpoint directly, so the AJS checks are the real boundary.
+- `/api/save` accepts structured orders only. `Foxline.planning/SaveSchedule` builds the UPDATEs itself, validates types, and refuses completed (`MTRSTS=1`), foreign-company or non-5171 documents.
 - Session cookies are `HttpOnly; Secure; SameSite=Lax`. Real session body lives in KV, so logout deletes it server-side.
 - The Soft1 `clientID` never leaves the Worker; the browser only sees an opaque session id.
 

@@ -1,13 +1,13 @@
 {
   "name": "production-planning",
   "version": "0.1.0",
-  "description": "Production scheduling planner for Vlachos Bros — Cloudflare Worker + static assets, with embedded Soft1 x=external fallback.",
+  "description": "Production scheduling planner for Vlachos Bros — Cloudflare Worker + static assets + Soft1 AJS web service (Foxline.planning).",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
-    "sync-embedded": "node scripts/sync-to-softone.mjs"
+    "sync-embedded-legacy": "node scripts/sync-to-softone.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
