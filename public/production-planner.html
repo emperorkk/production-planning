@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Πρόγραμμα Παραγωγής — Vlachos Bros</title>
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Mock-mode banner (hidden in real Soft1) ── -->
+  <div id="mock-banner" style="display:none">
+    &#9888; DEMO MODE — Εκτελείται με προσομοιωμένα δεδομένα (εκτός Soft1)
+  </div>
+
+  <!-- ── Unsaved-changes banner ── -->
+  <div id="unsaved-banner">
+    &#9998; Υπάρχουν μη αποθηκευμένες αλλαγές &mdash; πατήστε Αποθήκευση
+  </div>
+
+  <!-- ── Toolbar ── -->
+  <div id="toolbar">
+    <span class="toolbar-title">&#9776; Πρόγραμμα Παραγωγής</span>
+
+    <div class="week-nav">
+      <button id="btn-prev-week" class="btn btn-nav" title="Προηγούμενη εβδομάδα">&#8592;</button>
+      <span id="week-label" class="week-label">—</span>
+      <button id="btn-next-week" class="btn btn-nav" title="Επόμενη εβδομάδα">&#8594;</button>
+    </div>
+
+    <button id="btn-zoom-out" class="btn btn-zoom" title="Σμίκρυνση">&#8722;</button>
+    <button id="btn-zoom-in"  class="btn btn-zoom" title="Μεγέθυνση">&#43;</button>
+
+    <button id="btn-auto-place" class="btn btn-auto" title="Αυτόματη τοποθέτηση μη προγραμματισμένων φάσεων">
+      &#9881; Αυτόματο
+    </button>
+
+    <span id="prov-pill" class="prov-pill" hidden title="Προσωρινές βάρδιες — κλικ για αφαίρεση όλων">
+      &#9888; <span id="prov-count">0</span> προσ. βάρδιες
+    </span>
+
+    <span class="spacer"></span>
+
+    <button id="btn-export" class="btn btn-export">&#8595; Excel</button>
+    <button id="btn-save"   class="btn btn-save" disabled>&#10003; Αποθήκευση</button>
+    <button id="btn-logout" class="btn" style="display:none; margin-left:6px;" title="Αποσύνδεση">&#x21AA; Έξοδος</button>
+  </div>
+
+  <!-- ── Main content ── -->
+  <div id="main">
+
+    <!-- Left: Unscheduled orders panel -->
+    <div id="unscheduled-panel">
+      <div class="panel-header">Μη Προγραμματισμένες</div>
+      <input id="order-search" type="text" placeholder="&#128269; Αναζήτηση παραγγελίας…" autocomplete="off" />
+      <div id="unscheduled-list"></div>
+    </div>
+
+    <!-- Right: Gantt area -->
+    <div id="gantt-area">
+
+      <!-- Sticky time header (synced with scroll) -->
+      <div id="gantt-header">
+        <div id="gantt-machine-label-spacer"></div>
+        <!-- Wrapper keeps overflow:hidden; scrollLeft synced via JS -->
+        <div id="gantt-time-header-wrapper" style="overflow:hidden; flex:1; display:flex;">
+          <div id="gantt-time-header" style="display:flex; flex-shrink:0;"></div>
+        </div>
+      </div>
+
+      <!-- Scrollable gantt body -->
+      <div id="gantt-scroll">
+        <div id="gantt-body"></div>
+        <!-- Drop ghost overlay -->
+        <div id="drop-ghost"></div>
+      </div>
+
+      <!-- Issue / conflict panel (shown only when there are issues) -->
+      <div id="issue-panel">
+        <div class="issue-header">&#9888; Προβλήματα προγράμματος</div>
+      </div>
+
+    </div><!-- /gantt-area -->
+
+  </div><!-- /main -->
+
+</div><!-- /app -->
+
+<!-- Context menu -->
+<div id="context-menu">
+  <ul>
+    <li data-action="edit-duration">&#9998; Αλλαγή διάρκειας</li>
+    <li data-action="remove" class="separator danger">&#10005; Αφαίρεση από πρόγραμμα</li>
+  </ul>
+</div>
+
+<!-- Toast notification -->
+<div id="toast"></div>
+
+<!-- Loading overlay -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+</div>
+
+<!-- Add-provisional-shift modal -->
+<div id="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">&#9888; Προσωρινή Βάρδια</div>
+    <div class="modal-body">
+      <label>Ημερομηνία</label>
+      <input id="shift-date" type="date" />
+
+      <label>Μηχανή</label>
+      <select id="shift-group"></select>
+
+      <label>Ώρα Έναρξης</label>
+      <input id="shift-start" type="time" step="1800" />
+
+      <label>Ώρα Λήξης</label>
+      <input id="shift-end" type="time" step="1800" />
+
+      <div class="hint">
+        Η βάρδια είναι <b>προσωρινή</b> — χρησιμοποιείται μόνο για το πλάνο και
+        <u>δεν αποθηκεύεται στο Soft1</u>. Δεξί κλικ πάνω της για αφαίρεση.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-shift-cancel" class="btn btn-cancel">Άκυρο</button>
+      <button id="btn-shift-save" class="btn btn-confirm">Προσθήκη</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Scripts ── -->
+<!-- SheetJS: download xlsx.mini.min.js from https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.mini.min.js
+     Save as: src/lib/xlsx.min.js -->
+<script src="src/lib/xlsx.min.js"></script>
+
+<script src="src/soft1-bridge.js"></script>
+<script src="src/data-service.js"></script>
+<script src="src/scheduler-engine.js"></script>
+<script src="src/gantt-renderer.js"></script>
+<script src="src/drag-drop-manager.js"></script>
+<script src="src/excel-exporter.js"></script>
+<script src="src/ui-controller.js"></script>
+
+</body>
+</html>

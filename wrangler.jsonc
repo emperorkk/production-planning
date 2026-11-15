@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "production-planning",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static Assets: everything under ./public is served directly by the Worker.
+  // The Worker still runs for every request — we route /api/* and auth-gate pages.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/login",
+      "/logout"
+    ]
+  },
+
+  // KV namespace for session storage (clientID + user context per session cookie).
+  // Create with:  wrangler kv namespace create SESSIONS
+  // Then paste the id below.
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "REPLACE_WITH_KV_ID_AFTER_wrangler_kv_namespace_create"
+    }
+  ],
+
+  // Non-secret config. Secrets (SOFT1_APP_ID, SESSION_SECRET) go via
+  //   wrangler secret put SOFT1_APP_ID
+  //   wrangler secret put SESSION_SECRET
+  "vars": {
+    "SOFT1_API_URL": "https://REPLACE.oncloud.gr/s1services",
+    "SOFT1_COMPANY": "1000",
+    "SOFT1_BRANCH":  "1000"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
