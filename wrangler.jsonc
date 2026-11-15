@@ -1,6 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "production-planning",
+  // Cloudflare account: ONECODE Support
+  "account_id": "af6abc318e022147698714a45b9ba92e",
   "main": "worker/index.js",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -19,7 +21,8 @@
   },
 
   // KV namespace for session storage (clientID + user context per session cookie).
-  // Create with:  wrangler kv namespace create SESSIONS
+  // To be created on the ONECODE Support account AFTER the Worker is created:
+  //   npx wrangler kv namespace create SESSIONS
   // Then paste the id below.
   "kv_namespaces": [
     {
@@ -33,8 +36,9 @@
   //   wrangler secret put SESSION_SECRET
   "vars": {
     "SOFT1_API_URL": "https://01104398142024.oncloud.gr/s1services",
-    "SOFT1_COMPANY": "1000",
-    "SOFT1_BRANCH":  "1000"
+    // Empty = fall back to the first company/branch returned by Soft1 /login
+    "SOFT1_COMPANY": "",
+    "SOFT1_BRANCH":  ""
   },
 
   "observability": {

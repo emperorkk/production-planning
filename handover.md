@@ -184,8 +184,8 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
 - ✅ **GitHub repo** initial commit pushed to https://github.com/emperorkk/production-planning
 
 ### Pending (needs user action before Worker can go live)
-1. **Fill `wrangler.jsonc`:** set `vars.SOFT1_API_URL` to the real S1Services endpoint (e.g. `https://xxx.oncloud.gr/s1services`), set `SOFT1_COMPANY` / `SOFT1_BRANCH`
-2. **Create KV namespace:** `npx wrangler kv namespace create SESSIONS` → paste id into `wrangler.jsonc`
+1. ~~**Fill `wrangler.jsonc`:**~~ DONE — `SOFT1_API_URL = https://01104398142024.oncloud.gr/s1services`; `SOFT1_COMPANY`/`SOFT1_BRANCH` left empty on purpose → falls back to first company/branch returned by `/login`; `account_id` set to **ONECODE Support** (`af6abc318e022147698714a45b9ba92e`)
+2. **Create KV namespace** on ONECODE Support **after the Worker is created**: `npx wrangler kv namespace create SESSIONS` → paste id into `wrangler.jsonc`
 3. **Deploy Soft1 "JS" script named `RUNSQL`** on the Soft1 server:
    ```js
    try { X.RUNSQL(param1, null); return { success: true }; }
