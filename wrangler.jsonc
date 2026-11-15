@@ -7,17 +7,16 @@
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
 
-  // Static Assets: everything under ./public is served directly by the Worker.
-  // The Worker still runs for every request — we route /api/* and auth-gate pages.
+  // Static Assets: everything under ./public is served by the Worker via env.ASSETS.
+  // run_worker_first=true → the Worker runs for EVERY request, so it can auth-gate pages.
+  // html_handling=none    → /login.html is served as-is (default "auto-trailing-slash"
+  //                          redirects it to /login, which looped with the Worker's redirect).
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": [
-      "/api/*",
-      "/login",
-      "/logout"
-    ]
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": true
   },
 
   // KV namespace for session storage (clientID + user context per session cookie).
