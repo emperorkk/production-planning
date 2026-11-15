@@ -311,6 +311,8 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 
 ## 9. User preferences learned
 
+- **Do NOT use the `noma` Soft1 MCP connector for Vlachos Bros** — different installation. Ask the user for schema/field info instead. (The `RSRC` LOCATEINFO in `worker/routes/record.js` uses standard Soft1 RSRC fields; if any is missing at Vlachos Bros, `getData` errors — adjust there.)
+
 - **ALWAYS bump `package.json` "version" on every merge to main** (patch = fix, minor = feature). It's shown on the live site (login page + planner toolbar, via `/api/version`) so the user can tell which build is deployed. Mention the new version when reporting the merge.
 
 - **Terse responses** — short status, no trailing summaries unless asked
