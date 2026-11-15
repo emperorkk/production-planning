@@ -39,37 +39,56 @@ async function callService(env, body) {
 export async function loginAndAuthenticate(env, { username, password, company, branch }) {
   if (!env.SOFT1_APP_ID) throw new Error('SOFT1_APP_ID is not configured');
 
-  // Step 1 — login (returns a temporary clientID + list of companies)
-  const login = await callService(env, {
-    service:  'login',
-    username,
-    password,
-    appId:    env.SOFT1_APP_ID            // set in wrangler.jsonc vars
-  });
+  // Step 1 — login → temporary clientID + objs[] (allowed COMPANY/BRANCH/MODULE/REFID combos)
+  let login;
+  try {
+    login = await callService(env, {
+      service:  'login',
+      username,
+      password,
+      appId:    env.SOFT1_APP_ID
+    });
+  } catch (e) {
+    throw new Error('Soft1 login: ' + e.message);
+  }
   const tempClientID = login.clientID;
-  if (!tempClientID) throw new Error('Login succeeded but no clientID returned');
+  if (!tempClientID) throw new Error('Soft1 login: no clientID returned');
 
-  // Pick the company/branch. If caller specified, use it. Else pick the first offered.
-  const chosenCompany = company || env.SOFT1_COMPANY || (login.objs?.[0]?.COMPANY);
-  const chosenBranch  = branch  || env.SOFT1_BRANCH  || (login.objs?.[0]?.BRANCH);
-  if (!chosenCompany) throw new Error('No company available for this user');
+  const objs = Array.isArray(login.objs) ? login.objs : [];
+  console.log('Soft1 login objs:', JSON.stringify(objs));   // visible in `wrangler tail`; no secrets
 
-  // Step 2 — authenticate (promotes clientID into an authenticated session)
-  const auth = await callService(env, {
+  // Pick the objs entry: requested company/branch → env defaults → first offered.
+  const wantCo = String(company || env.SOFT1_COMPANY || '');
+  const wantBr = String(branch  || env.SOFT1_BRANCH  || '');
+  const pick =
+    objs.find(o => (!wantCo || String(o.COMPANY) === wantCo) && (!wantBr || String(o.BRANCH) === wantBr)) ||
+    objs.find(o => !wantCo || String(o.COMPANY) === wantCo) ||
+    objs[0];
+  if (!pick) throw new Error('Soft1 login: no company available for this user');
+
+  // Step 2 — authenticate with the values Soft1 offered (REFID/MODULE must match the user)
+  const authBody = {
     service:  'authenticate',
     clientID: tempClientID,
-    COMPANY:  parseInt(chosenCompany, 10),
-    BRANCH:   parseInt(chosenBranch || chosenCompany, 10),
-    MODULE:   0,
-    REFID:    0
-  });
+    COMPANY:  String(pick.COMPANY),
+    BRANCH:   String(pick.BRANCH ?? pick.COMPANY),
+    MODULE:   String(pick.MODULE ?? 0),
+    REFID:    String(pick.REFID ?? 0)
+  };
+  let auth;
+  try {
+    auth = await callService(env, authBody);
+  } catch (e) {
+    throw new Error('Soft1 authenticate (COMPANY ' + authBody.COMPANY + ', BRANCH ' + authBody.BRANCH +
+                    ', REFID ' + authBody.REFID + '): ' + e.message);
+  }
 
   return {
     clientID: auth.clientID || tempClientID,
-    company:  parseInt(chosenCompany, 10),
-    branch:   parseInt(chosenBranch || chosenCompany, 10),
+    company:  parseInt(authBody.COMPANY, 10),
+    branch:   parseInt(authBody.BRANCH, 10),
     user:     username,
-    objs:     login.objs || []
+    objs
   };
 }
 
