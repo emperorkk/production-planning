@@ -10,11 +10,13 @@
  *   GET  /api/me            → whoami
  *   GET  /api/version       → { version } (public)
  *   POST /api/data          → named dataset via Foxline.planning/<Get...>
+ *   POST /api/record        → native Soft1 getData (whitelisted objects: RSRC)
  *   POST /api/save          → write schedule via Foxline.planning/SaveSchedule
  */
 
 import { handleLogin, handleLogout, handleMe } from './routes/auth.js';
 import { handleData, handleSave }              from './routes/data.js';
+import { handleRecord }                        from './routes/record.js';
 import { getSession }                          from './session.js';
 import { VERSION }                             from './version.js';
 
@@ -40,6 +42,7 @@ export default {
       if (path === '/api/logout') return handleLogout(request, env);
       if (path === '/api/me')     return handleMe(request, env);
       if (path === '/api/data')   return handleData(request, env);
+      if (path === '/api/record') return handleRecord(request, env);
       if (path === '/api/save')   return handleSave(request, env);
 
       // ── Root redirect ──────────────────────────────────────────────────

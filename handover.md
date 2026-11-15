@@ -191,6 +191,7 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
 - ✅ **Login page** (`public/login.html` + `src/login.js`) — Soft1 Web Accounts flow
 - ✅ **Worker-only** — embedded mode deprecated & frozen in `legacy/embedded/`; bridge is web | mock
 - ✅ **App icon** (OpenAI-generated, source `assets/icon-source-1024.png`) → `public/favicon.ico`, `public/icons/*`, `public/manifest.webmanifest`
+- ✅ **Machine info card** — click a machine name → native Soft1 `getData` (`OBJECT=RSRC`, `KEY=<RSRC id>`, fixed `LOCATEINFO` in `worker/routes/record.js`) via `/api/record` → floating card (`public/src/machine-card.js`) + eligible phases from planner state
 - ✅ **Version label** on login + toolbar (`/api/version` ← `package.json`)
 - ✅ **AJS web service `soft1/Foxline.planning.js`** — named datasets (SQL moved out of the browser) + batched `SaveSchedule`
 - ✅ **GitHub repo** initial commit pushed to https://github.com/emperorkk/production-planning
@@ -329,6 +330,7 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 | Change the shift calculation | `public/src/data-service.js` → `SHIFT_TIMES` + `_explodeShifts()` |
 | Change block appearance | `public/src/gantt-renderer.js` → `renderBlocks()` + CSS in `styles.css` |
 | Change drop validation | `public/src/ui-controller.js` → `DragDropManager.on('drop', ...)` handler |
+| Show another Soft1 record natively | `worker/routes/record.js` → add object + LOCATEINFO to `RECORDS`; call `Soft1Bridge.record(object, key)` |
 | Add a new Worker route | `worker/index.js` route table + `worker/routes/*.js` |
 | Soft1 Web Services call shape | `worker/soft1-client.js` → `callService()` wraps all POSTs |
 

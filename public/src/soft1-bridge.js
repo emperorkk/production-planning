@@ -81,6 +81,23 @@
     return data.rows || [];
   }
 
+  // Native Soft1 getData via /api/record → { TABLE: [ {field: value} ] }
+  async function _webRecord(object, key) {
+    const res = await fetch('/api/record', {
+      method:  'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin',
+      body:    JSON.stringify({ object: object, key: key })
+    });
+    if (res.status === 401) {
+      window.location.replace('/login.html');
+      throw new Error('Session expired');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+    return data.data || {};
+  }
+
   // Batched schedule write via /api/save → Foxline.planning/SaveSchedule.
   // orders: [{ findoc, machine|null, start|null, end|null }]  (dates 'YYYY-MM-DD HH:MM')
   async function _webSave(orders) {
@@ -127,6 +144,16 @@
     dataset: async function (name, params) {
       if (MODE === 'mock') return [];
       return _webDataset(name, params);
+    },
+
+    // One record of a Soft1 object (native getData). Mock: built from mock machines.
+    record: async function (object, key) {
+      if (MODE === 'mock') {
+        var m = MOCK_DATA.machines.filter(function (x) { return String(x.id) === String(key); })[0] || {};
+        return { RSRC: [{ RSRC: key, CODE: m.id, NAME: m.name, ISACTIVE: 1, SETUPTIME: m.setupTime,
+                          WAITTIME: m.waitTime, MPRDQTY: m.averageSpeed, REMARKS: 'Demo' }] };
+      }
+      return _webRecord(object, key);
     },
 
     // Batched write of planner results.

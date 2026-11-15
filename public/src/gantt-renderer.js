@@ -297,7 +297,8 @@
         // Label
         var label = document.createElement('div');
         label.className = 'gantt-machine-label';
-        label.innerHTML = '<span title="' + _esc(machine.name) + '">' + _esc(machine.name) + '</span>';
+        label.dataset.machineId = machine.id;
+        label.innerHTML = '<span title="Στοιχεία μηχανής — ' + _esc(machine.name) + '">' + _esc(machine.name) + '</span>';
         row.appendChild(label);
 
         // Timeline

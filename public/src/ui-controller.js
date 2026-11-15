@@ -77,6 +77,9 @@
 
     if (Soft1Bridge.isMock && els.mockBanner) els.mockBanner.style.display = 'block';
 
+    // Click a machine name → floating Soft1 RSRC card
+    if (global.MachineCard) MachineCard.init(function () { return state; });
+
     // Logout button only exists in web mode
     if (Soft1Bridge.isWeb && els.btnLogout) {
       els.btnLogout.style.display = '';

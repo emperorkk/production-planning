@@ -136,6 +136,24 @@ export async function saveSchedule(env, clientID, orders) {
 }
 
 /**
+ * Native S1Services getData — read one record of a Soft1 object.
+ *   { service:'getData', clientID, appId, OBJECT, FORM, KEY, LOCATEINFO }
+ * Returns the response's `data` ({ TABLE: [ {field: value} ] }).
+ */
+export async function getRecord(env, clientID, object, key, locateinfo) {
+  const data = await callService(env, {
+    service:    'getData',
+    clientID,
+    appId:      env.SOFT1_APP_ID,
+    OBJECT:     object,
+    FORM:       '',
+    KEY:        String(key),
+    LOCATEINFO: locateinfo
+  });
+  return data.data || {};
+}
+
+/**
  * Validate a clientID is still alive.
  */
 export async function pingSession(env, clientID) {

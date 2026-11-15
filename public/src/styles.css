@@ -882,3 +882,29 @@ input, button, select, textarea {
 /* Deployed version label (filled by src/version.js) */
 .app-version { font-size: 11px; font-weight: normal; opacity: 0.7; margin-left: 6px; }
 .toolbar-title .app-icon { vertical-align: -4px; margin-right: 4px; border-radius: 4px; }
+
+/* ── Machine info card (src/machine-card.js) ─────────────────────────── */
+.gantt-machine-label { cursor: pointer; }
+.gantt-machine-label:hover span { color: #e67e22; text-decoration: underline; }
+.machine-card {
+  position: fixed; z-index: 1000; width: 300px; max-height: 70vh; overflow: auto;
+  background: #fff; color: #1f2937; border: 1px solid #d1d5db; border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .18); font-size: 12px;
+}
+.machine-card .mc-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; background: #2c3e50; color: #fff; border-radius: 8px 8px 0 0;
+  position: sticky; top: 0;
+}
+.machine-card .mc-title { font-weight: 700; font-size: 13px; }
+.machine-card .mc-close { background: none; border: 0; color: #fff; font-size: 18px; line-height: 1; cursor: pointer; opacity: .8; }
+.machine-card .mc-close:hover { opacity: 1; }
+.machine-card .mc-phases { padding: 8px 12px 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.machine-card .mc-chip { background: #fff4e6; color: #b45309; border-radius: 10px; padding: 2px 8px; font-size: 11px; }
+.machine-card .mc-body { padding: 8px 12px 12px; }
+.machine-card .mc-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+.machine-card .mc-row:last-child { border-bottom: 0; }
+.machine-card .mc-k { color: #6b7280; }
+.machine-card .mc-v { font-weight: 600; text-align: right; white-space: pre-wrap; word-break: break-word; }
+.machine-card .mc-loading, .machine-card .mc-empty { color: #6b7280; padding: 6px 0; }
+.machine-card .mc-error { color: #b91c1c; padding: 6px 0; }
