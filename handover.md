@@ -185,7 +185,7 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
 
 ### Pending (needs user action before Worker can go live)
 1. ~~**Fill `wrangler.jsonc`:**~~ DONE — `SOFT1_API_URL = https://01104398142024.oncloud.gr/s1services`; `SOFT1_COMPANY`/`SOFT1_BRANCH` left empty on purpose → falls back to first company/branch returned by `/login`; `account_id` set to **ONECODE Support** (`af6abc318e022147698714a45b9ba92e`)
-2. **Create KV namespace** on ONECODE Support **after the Worker is created**: `npx wrangler kv namespace create SESSIONS` → paste id into `wrangler.jsonc`
+2. ~~**Create KV namespace**~~ DONE — `production-planning-SESSIONS` (`2bf8852d955c4bcbb1def4e4d3ccef37`) on ONECODE Support
 3. **Deploy Soft1 "JS" script named `RUNSQL`** on the Soft1 server:
    ```js
    try { X.RUNSQL(param1, null); return { success: true }; }

@@ -27,7 +27,7 @@
   "kv_namespaces": [
     {
       "binding": "SESSIONS",
-      "id": "REPLACE_WITH_KV_ID_AFTER_wrangler_kv_namespace_create"
+      "id": "2bf8852d955c4bcbb1def4e4d3ccef37"
     }
   ],
 
