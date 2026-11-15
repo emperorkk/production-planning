@@ -302,7 +302,8 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 8. **Bridge is async** — if you see a non-awaited `Soft1Bridge.dataset()` / `saveSchedule()` call, that's a bug.
 9. **Embedded is frozen** — `legacy/embedded/` must not receive new features or fixes. Everything goes to `public/` + `worker/` + `soft1/`.
 10. **New dataset = 3 places**: function in `soft1/Foxline.planning.js` + entry (name → allowed params) in `DATASETS` in `worker/routes/data.js` + caller in `data-service.js`. Unlisted names/params are rejected by the Worker.
-11. **AJS = ES3** — no `JSON.parse`, arrow functions or `Array.isArray`; use `eval(ds.JSON)` for dataset → rows (as in `Production.scale`).
+11. **Soft1 responses can be windows-1253** (Greek showed as �). `worker/encoding.js decodeSoft1()` decodes strict UTF-8 if valid, else cp1253 (own table). All Soft1 responses go through it in `soft1-client.js` — never use `res.text()` there.
+11b. **AJS = ES3** — no `JSON.parse`, arrow functions or `Array.isArray`; use `eval(ds.JSON)` for dataset → rows (as in `Production.scale`).
 12. **Unverified:** whether `ds.JSON` keeps column-alias case (`plannedStartDataTime`, `average_speed_in_metres_per_minute`) and its datetime string format. Check the first `GetMachines` / `GetOrdersInWeek` response.
 
 ---

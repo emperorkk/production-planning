@@ -8,6 +8,8 @@
  * Reference: https://docs.soft1.gr (Soft1 Services / s1services endpoint).
  */
 
+import { decodeSoft1 } from './encoding.js';
+
 function endpoint(env, path = '') {
   const base = (env.SOFT1_API_URL || '').replace(/\/+$/, '');
   return base + (path ? '/' + path.replace(/^\/+/, '') : '');
@@ -19,7 +21,7 @@ async function callService(env, body) {
     headers: { 'content-type': 'application/json' },
     body:    JSON.stringify(body)
   });
-  const text = await res.text();
+  const text = decodeSoft1(await res.arrayBuffer(), res.headers.get('content-type') || '');
   let data;
   try { data = JSON.parse(text); }
   catch { throw new Error('Soft1 non-JSON response: ' + text.slice(0, 200)); }
@@ -103,7 +105,7 @@ async function callJS(env, clientID, fn, params = {}) {
     headers: { 'content-type': 'application/json' },
     body:    JSON.stringify({ clientID, ...params })
   });
-  const text = await res.text();
+  const text = decodeSoft1(await res.arrayBuffer(), res.headers.get('content-type') || '');
   let data;
   try { data = JSON.parse(text); }
   catch { throw new Error(`Soft1 ${fn}: non-JSON response: ` + text.slice(0, 200)); }
