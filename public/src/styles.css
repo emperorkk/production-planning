@@ -878,3 +878,6 @@ input, button, select, textarea {
 }
 .btn-cancel { background: #ddd; color: #333; }
 .btn-confirm { background: #e67e22; color: #fff; }
+
+/* Deployed version label (filled by src/version.js) */
+.app-version { font-size: 11px; font-weight: normal; opacity: 0.7; margin-left: 6px; }

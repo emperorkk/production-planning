@@ -305,6 +305,8 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 
 ## 9. User preferences learned
 
+- **ALWAYS bump `package.json` "version" on every merge to main** (patch = fix, minor = feature). It's shown on the live site (login page + planner toolbar, via `/api/version`) so the user can tell which build is deployed. Mention the new version when reporting the merge.
+
 - **Terse responses** — short status, no trailing summaries unless asked
 - **Ask before major refactors** — the user says "Provide feedback before moving on to making any changes" when a design question is on the table; honour that pattern
 - **User edits SQL queries manually** (now in `soft1/Foxline.planning.js`) — they'll paste updated queries in chat, often with inline tweaks (e.g. adding `ISNULL(LS.DELIVDATE, L0.DELIVDATE)` or correcting `A.RSRC` → `L.RSRC`); apply their exact SQL rather than rewriting it

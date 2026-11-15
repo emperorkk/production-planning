@@ -1,0 +1,8 @@
+# CLAUDE.md
+
+Read `handover.md` first — it has the full project context.
+
+## Rules
+- **Bump `package.json` "version" on EVERY merge to `main`** (patch = fix, minor = feature). The live site shows it (login page + planner toolbar via `/api/version`). State the new version when reporting a merge.
+- Embedded mode (`legacy/embedded/`) is frozen — no changes there.
+- All SQL lives in `soft1/Foxline.planning.js`; after changing it, remind the user to paste it into Soft1.
