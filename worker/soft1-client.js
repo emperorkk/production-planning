@@ -72,58 +72,53 @@ export async function loginAndAuthenticate(env, { username, password, company, b
 }
 
 /**
- * Run an ad-hoc SELECT via SqlData. Soft1's SqlData service accepts a SQL
- * expression directly (requires the user have "Execute SQL" rights — the same
- * rights that `x=external`.GetSqlDataSet relies on).
- *
- * Returns the response's `rows` field: an array of plain objects keyed by column.
+ * Call a function of the custom Soft1 AJS web service (soft1/Foxline.planning.js).
+ *   POST <SOFT1_API_URL>/JS/<SOFT1_JS_SCRIPT>/<fn>   body: { clientID, ...params }
+ */
+async function callJS(env, clientID, fn, params = {}) {
+  const script = env.SOFT1_JS_SCRIPT || 'Foxline.planning';
+  const res = await fetch(endpoint(env, `JS/${script}/${fn}`), {
+    method:  'POST',
+    headers: { 'content-type': 'application/json' },
+    body:    JSON.stringify({ clientID, ...params })
+  });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); }
+  catch { throw new Error(`Soft1 ${fn}: non-JSON response: ` + text.slice(0, 200)); }
+  return data;
+}
+
+/**
+ * Run a SELECT through Foxline.planning/getData.
+ * Returns an array of plain objects keyed by column alias.
  */
 export async function runSql(env, clientID, sql) {
-  const data = await callService(env, {
-    service:  'SqlData',
-    clientID,
-    SqlName:  '',        // empty: inline SQL rather than a stored template
-    param1:   sql
-  });
-  // S1Services returns { success, totalcount, fields, rows }
-  // `rows` may be an array of arrays; convert to objects keyed by field name.
-  if (!data.rows) return [];
-  if (data.fields && Array.isArray(data.rows[0])) {
-    return data.rows.map(row => {
-      const o = {};
-      data.fields.forEach((f, i) => { o[f.name] = row[i]; });
-      return o;
-    });
-  }
-  return data.rows;
+  const data = await callJS(env, clientID, 'getData', { sql });
+  if (data.success === false) throw new Error(data.error || 'getData failed');
+  return Array.isArray(data.data) ? data.data : [];
 }
 
 /**
- * Run an UPDATE/INSERT via a server-side JS script (Soft1 "JS" service).
- * The embedded x=external uses RUNSQL; S1Services doesn't expose arbitrary DML,
- * so we route writes through a named Soft1 script that accepts the SQL as a param.
- *
- * You must deploy a Soft1 "JS" script named "RUNSQL" that executes:
- *     try { X.RUNSQL(param1, null); return { success: true }; }
- *     catch (e) { return { success: false, error: e.message }; }
+ * Write machine + planned dates through Foxline.planning/saveSchedule.
+ * orders: [{ findoc, machine|null, start|null, end|null }]  (dates 'YYYY-MM-DD HH:MM')
+ * Returns { success, saved, skipped, errors[] }.
  */
-export async function runExec(env, clientID, sql) {
-  const data = await callService(env, {
-    service:  'JS',
-    clientID,
-    Script:   'RUNSQL',
-    param1:   sql
-  });
-  return data.success !== false;
+export async function saveSchedule(env, clientID, orders) {
+  const data = await callJS(env, clientID, 'saveSchedule', { orders });
+  if (data.success === false && !Array.isArray(data.errors)) {
+    throw new Error(data.error || 'saveSchedule failed');
+  }
+  return data;
 }
 
 /**
- * Validate a clientID is still alive by pinging a cheap service.
+ * Validate a clientID is still alive.
  */
 export async function pingSession(env, clientID) {
   try {
-    await callService(env, { service: 'getBrowserInfo', clientID, object: 'CUSTOMER' });
-    return true;
+    const data = await callJS(env, clientID, 'ping');
+    return data.success !== false;
   } catch {
     return false;
   }

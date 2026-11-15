@@ -35,7 +35,8 @@ worker/                           ← Cloudflare Worker (nodejs_compat)
 ├── session.js                    ← KV-backed signed sessions
 └── routes/
     ├── auth.js                   ← /api/login, /api/logout, /api/me
-    └── sql.js                    ← /api/sql (SELECT only), /api/exec (whitelisted UPDATEs)
+    └── sql.js                    ← /api/sql (SELECT only), /api/save (structured schedule write)
+soft1/Foxline.planning.js         ← Soft1 AJS web service used by the Worker
 
 wrangler.jsonc                    ← Worker config + KV + env vars
 package.json                      ← npm scripts (dev, deploy, tail)
@@ -63,12 +64,9 @@ scripts/sync-to-softone.mjs       ← copies public/ → C:\SoftOne\Vlachos Bros
    npx wrangler secret put SOFT1_APP_ID        # Soft1 appId (default 703)
    ```
 
-4. Deploy a Soft1 "JS" service script named **RUNSQL** on the server that runs:
-   ```js
-   try { X.RUNSQL(param1, null); return { success: true }; }
-   catch (e) { return { success: false, error: e.message }; }
-   ```
-   This is what `/api/exec` calls for the two whitelisted `UPDATE` statements.
+4. In Soft1, create the AJS web service **Foxline.planning** from `soft1/Foxline.planning.js`.
+   The Worker calls `<SOFT1_API_URL>/JS/Foxline.planning/<fn>` with `{ clientID, ...params }`:
+   `ping`, `getData` (`{ sql }`, SELECT only) and `saveSchedule` (`{ orders: [...] }`).
 
 5. Run locally:
    ```bash
@@ -99,8 +97,8 @@ Then open the page from inside Soft1 via a `x=external` menu entry pointing to `
 
 ## Security notes
 
-- `/api/sql` accepts **only SELECT / WITH** queries. Anything else is rejected by the Worker *before* the Soft1 call.
-- `/api/exec` only accepts the two exact `UPDATE` prefixes the planner needs for write-back (`FINDOC.CCCFXRSRC` and `MTRLINES.DATE01/02`).
+- `/api/sql` accepts **only SELECT / WITH** queries; `Foxline.planning/getData` re-checks the same rule, since any Soft1 user could call the AJS endpoint directly.
+- `/api/save` accepts structured orders only (no SQL). `Foxline.planning/saveSchedule` builds the UPDATEs itself, validates types, and refuses completed (`MTRSTS=1`), foreign-company or non-5171 documents.
 - Session cookies are `HttpOnly; Secure; SameSite=Lax`. Real session body lives in KV, so logout deletes it server-side.
 - The Soft1 `clientID` never leaves the Worker; the browser only sees an opaque session id.
 

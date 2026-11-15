@@ -47,10 +47,12 @@ public/                           ← Worker's static assets root
 worker/
 ├── index.js                      ← entry — routes /api/*, auth-gates static
 ├── soft1-client.js               ← Soft1 Web Services HTTP client
-├── session.js                    ← KV-backed signed sessions, HttpOnly cookie
+├── session.js                    ← KV-backed sessions (random id), HttpOnly cookie
 └── routes/
     ├── auth.js                   ← /api/login, /api/logout, /api/me
-    └── sql.js                    ← /api/sql (SELECT guard), /api/exec (whitelist)
+    └── sql.js                    ← /api/sql (SELECT guard), /api/save (structured orders)
+soft1/
+└── Foxline.planning.js           ← Soft1 AJS web service (ping | getData | saveSchedule) — paste into Soft1
 wrangler.jsonc                    ← Worker config (KV + env vars)
 package.json                      ← npm scripts: dev | deploy | tail | sync-embedded
 scripts/sync-to-softone.mjs       ← mirror public/ → C:\SoftOne\Vlachos Bros\
@@ -186,12 +188,11 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
 ### Pending (needs user action before Worker can go live)
 1. ~~**Fill `wrangler.jsonc`:**~~ DONE — `SOFT1_API_URL = https://01104398142024.oncloud.gr/s1services`; `SOFT1_COMPANY`/`SOFT1_BRANCH` left empty on purpose → falls back to first company/branch returned by `/login`; `account_id` set to **ONECODE Support** (`af6abc318e022147698714a45b9ba92e`)
 2. ~~**Create KV namespace**~~ DONE — `production-planning-SESSIONS` (`2bf8852d955c4bcbb1def4e4d3ccef37`) on ONECODE Support
-3. **Deploy Soft1 "JS" script named `RUNSQL`** on the Soft1 server:
-   ```js
-   try { X.RUNSQL(param1, null); return { success: true }; }
-   catch (e) { return { success: false, error: e.message }; }
-   ```
-   This is what `/api/exec` calls to run the two whitelisted UPDATEs. Reads via `/api/sql` → `SqlData` service work without any server-side script.
+3. **Deploy the Soft1 AJS web service `Foxline.planning`** — source in `soft1/Foxline.planning.js`. Reached at `https://01104398142024.oncloud.gr/s1services/JS/Foxline.planning/<fn>` with body `{ clientID, ...params }`. Functions:
+   - `ping` — session check
+   - `getData` — `{ sql }` → `{ success, count, data:[rows] }`. SELECT-only guard; colons inside string literals rewritten as `'+CHAR(58)+'` (Soft1 treats `:x` as a param marker)
+   - `saveSchedule` — `{ orders:[{findoc, machine|null, start|null, end|null}] }` (dates `YYYY-MM-DD HH:MM`) → builds both UPDATEs server-side (dates via `DATEADD(MINUTE, n, 'YYYYMMDD')`, no colons), skips `MTRSTS=1`, checks `SOSOURCE=5171` + `X.SYS.COMPANY`. Returns `{ success, saved, skipped, errors[] }`
+   The built-in `SqlData` service is NOT used (it only runs stored SQL by name).
 4. **Optional:** `npx wrangler secret put SOFT1_APP_ID` if the default `703` isn't right for Vlachos Bros.
 5. **Test the login flow end-to-end** — the exact field names returned by `/login` / `/authenticate` may vary per Soft1 version. The client in `worker/soft1-client.js` assumes the standard shape; adjust if needed.
 
@@ -273,7 +274,9 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 7. **The `SPCOSTGROUP` subquery for phaseName** uses `WHERE COMPANY=SPCOSTGROUP` — this is Soft1 convention using table name as alias; it's not a typo.
 8. **Embedded mode is sync COM; web mode is async fetch** — bridge wraps both as `async`. If you see a non-awaited `.query()` call somewhere, that's a bug.
 9. **Soft1 `nowFn()` in web mode hardcodes MSSQL (`GETDATE()`)** — fine for Vlachos Bros but will break on other DBs.
-10. **`/api/exec` whitelist is strict** — if you add new UPDATE statements to `data-service.js WRITE`, you must also update the `ALLOWED_PREFIXES` regex array in `worker/routes/sql.js`.
+10. **Writes differ per mode** — embedded uses `data-service.js WRITE` SQL via `RUNSQL`; web sends structured orders to `/api/save` → `Foxline.planning/saveSchedule`, which builds its own UPDATEs. A new write-back field must be added in BOTH `WRITE` and `soft1/Foxline.planning.js saveSchedule` (+ `validOrder` in `worker/routes/sql.js`).
+11. **AJS = ES3** — no `JSON.parse`, arrow functions or `Array.isArray`; use `eval(ds.JSON)` for dataset → rows (as in `Production.scale`).
+12. **Unverified:** whether `ds.JSON` keeps column-alias case (`plannedStartDataTime`, `average_speed_in_metres_per_minute`) and its datetime string format. Check the first `getData` response.
 
 ---
 
@@ -292,7 +295,7 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 | Task | Where to look / change |
 |---|---|
 | Add a new SELECT query | `public/src/data-service.js` → `QUERIES` object + a new async method on `DataService`; no Worker changes needed (any SELECT passes the guard) |
-| Add a new write-back field | `public/src/data-service.js` → `WRITE` object AND `worker/routes/sql.js` → `ALLOWED_PREFIXES` regex |
+| Add a new write-back field | `public/src/data-service.js` → `WRITE` (embedded) + `saveOrders` payload (web) AND `soft1/Foxline.planning.js` → `saveSchedule` AND `worker/routes/sql.js` → `validOrder` |
 | Change the shift calculation | `public/src/data-service.js` → `SHIFT_TIMES` + `_explodeShifts()` |
 | Change block appearance | `public/src/gantt-renderer.js` → `renderBlocks()` + CSS in `styles.css` |
 | Change drop validation | `public/src/ui-controller.js` → `DragDropManager.on('drop', ...)` handler |
@@ -305,5 +308,5 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 
 - **Get the Worker deployed** — walk the user through the 3 setup steps (§4 Pending) with their actual S1Services URL
 - **Validate the login flow** against real Soft1 — the login/authenticate response shape in `loginAndAuthenticate()` is best-effort; may need tweaks once we see real responses
-- **Build the Soft1 `RUNSQL` script** — tiny 3-liner, but needs to be deployed on their Soft1 server for writes to work
+- **Deploy `soft1/Foxline.planning.js`** on Soft1 and test `ping` → `getData` → `saveSchedule`
 - **Possibly add Cloudflare Access** in front of the Worker for extra auth layer before the Soft1 login (CF Access = org SSO, then Soft1 login = app-level)

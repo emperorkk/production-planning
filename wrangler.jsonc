@@ -37,7 +37,9 @@
     "SOFT1_API_URL": "https://01104398142024.oncloud.gr/s1services",
     // Empty = fall back to the first company/branch returned by Soft1 /login
     "SOFT1_COMPANY": "",
-    "SOFT1_BRANCH":  ""
+    "SOFT1_BRANCH":  "",
+    // Custom AJS web service (soft1/Foxline.planning.js) → <SOFT1_API_URL>/JS/<script>/<fn>
+    "SOFT1_JS_SCRIPT": "Foxline.planning"
   },
 
   "observability": {

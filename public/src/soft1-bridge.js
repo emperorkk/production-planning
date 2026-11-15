@@ -111,20 +111,22 @@
     return data.rows || [];
   }
 
-  async function _webExec(sql) {
-    const res = await fetch('/api/exec', {
+  // Batched schedule write via /api/save → Foxline.planning/saveSchedule.
+  // orders: [{ findoc, machine|null, start|null, end|null }]  (dates 'YYYY-MM-DD HH:MM')
+  async function _webSave(orders) {
+    const res = await fetch('/api/save', {
       method:  'POST',
       headers: { 'content-type': 'application/json' },
       credentials: 'same-origin',
-      body:    JSON.stringify({ sql: sql })
+      body:    JSON.stringify({ orders: orders })
     });
     if (res.status === 401) {
       window.location.replace('/login.html');
       throw new Error('Session expired');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-    return !!data.ok;
+    if (!res.ok || (data.error && !data.errors)) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;   // { ok, saved, skipped, errors[] }
   }
 
   // Pulls user/company/branch from the session cookie on first boot.
@@ -166,7 +168,14 @@
           return false;
         }
       }
-      return _webExec(sql);
+      throw new Error('exec() is not available in web mode — use saveSchedule()');
+    },
+
+    // Web mode only — batched write of planner results.
+    saveSchedule: async function (orders) {
+      if (MODE === 'mock') { console.log('[MOCK SAVE]', orders); return { ok: true, saved: orders.length, skipped: 0, errors: [] }; }
+      if (MODE !== 'web')  throw new Error('saveSchedule() is web-mode only');
+      return _webSave(orders);
     },
 
     evalExpr: function (expr) {

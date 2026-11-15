@@ -351,6 +351,34 @@
 
     // ── Save: two UPDATEs per changed order ────────────────────────────────
     saveOrders: async function (changedOrders) {
+      // Web mode: one batched call to Foxline.planning/saveSchedule (builds the UPDATEs server-side)
+      if (Soft1Bridge.isWeb) {
+        var payload = changedOrders
+          .filter(function (o) { return o.status !== 1; })
+          .map(function (o) {
+            return {
+              findoc:  parseInt(o.id, 10),
+              machine: o.machineId == null ? null : parseInt(o.machineId, 10),
+              start:   o.plannedStart ? _fmtDateTime(o.plannedStart).slice(0, 16) : null,
+              end:     o.plannedEnd   ? _fmtDateTime(o.plannedEnd).slice(0, 16)   : null
+            };
+          });
+        if (!payload.length) return true;
+        try {
+          var res = await Soft1Bridge.saveSchedule(payload);
+          if (res.errors && res.errors.length) {
+            console.warn('saveSchedule errors', res.errors);
+            Soft1Bridge.warn('Αποτυχία αποθήκευσης για ' + res.errors.length + ' εντολές:\n' +
+              res.errors.slice(0, 10).map(function (e) { return e.findoc + ': ' + e.error; }).join('\n'));
+          }
+          return res.ok !== false && !(res.errors && res.errors.length);
+        } catch (e) {
+          Soft1Bridge.warn('Σφάλμα αποθήκευσης: ' + (e.message || e));
+          return false;
+        }
+      }
+
+      // Embedded / mock: two UPDATEs per order via RUNSQL
       var allOk = true;
       for (var i = 0; i < changedOrders.length; i++) {
         var o = changedOrders[i];
