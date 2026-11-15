@@ -32,7 +32,7 @@
   //   wrangler secret put SOFT1_APP_ID
   //   wrangler secret put SESSION_SECRET
   "vars": {
-    "SOFT1_API_URL": "https://REPLACE.oncloud.gr/s1services",
+    "SOFT1_API_URL": "https://01104398142024.oncloud.gr/s1services",
     "SOFT1_COMPANY": "1000",
     "SOFT1_BRANCH":  "1000"
   },
