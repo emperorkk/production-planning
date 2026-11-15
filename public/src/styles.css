@@ -976,3 +976,17 @@ input, button, select, textarea {
 }
 .modal-body .shift-mode input, .modal-body .shift-checks input { width: auto; }
 #shift-soft1-box[hidden], #shift-prov-box[hidden] { display: none; }
+
+/* ── Production progress (v0.5) ──────────────────────────────────────────── */
+.gantt-block .prod-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.25); border-radius: 0 0 3px 3px; overflow: hidden; }
+.gantt-block .prod-fill { height: 100%; background: #fff; }
+.gantt-block .prod-bar.done .prod-fill { background: #2ecc71; }
+.gantt-block .prod-badge { position: absolute; right: 8px; top: 2px; font-size: 9px; color: #fff; opacity: .9; }
+.info-card .mc-prod { padding: 0 12px 10px; }
+.info-card .mc-prod-sum { margin: 2px 0 4px; }
+.info-card .mc-prod-bar { height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+.info-card .mc-prod-bar > div { height: 100%; background: #27ae60; }
+.info-card .mc-rolls { width: 100%; border-collapse: collapse; font-size: 11px; }
+.info-card .mc-rolls th { text-align: left; color: #6b7280; font-weight: 600; border-bottom: 1px solid #e5e7eb; padding: 2px 4px; position: sticky; top: 0; background: #fff; }
+.info-card .mc-rolls td { padding: 2px 4px; border-bottom: 1px solid #f1f5f9; }
+.info-card .mc-rolls td.n { text-align: right; font-variant-numeric: tabular-nums; }

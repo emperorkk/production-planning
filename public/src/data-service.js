@@ -248,6 +248,49 @@
       return rows[0] || null;
     },
 
+    // ── Production progress (CCCFXPRDOPRD) ─────────────────────────────────
+    // ids: order ids actually shown. Returns { id: { rolls, producedQty, firstDate, lastDate, firstLot, lastLot } }
+    getProduction: async function (ids) {
+      var out = {};
+      ids = (ids || []).filter(function (x) { return /^\d+$/.test(String(x)) || Soft1Bridge.isMock; });
+      if (!ids.length) return out;
+      if (Soft1Bridge.isMock) {
+        ids.forEach(function (id, i) {
+          var o = Soft1Bridge.mockData.productionOrders.filter(function (r) { return r.id === id; })[0];
+          if (!o || (i % 2 && o.status !== 1)) return;
+          var rolls = o.status === 1 ? 6 : 3;
+          out[id] = { rolls: rolls, producedQty: o.status === 1 ? o.kilos : Math.round(o.kilos * 0.4),
+                      firstDate: new Date(), lastDate: new Date(), firstLot: '260914001', lastLot: '26091400' + rolls };
+        });
+        return out;
+      }
+      for (var i = 0; i < ids.length; i += 500) {
+        var rows = await Soft1Bridge.dataset('GetProduction', { findocs: ids.slice(i, i + 500).join(',') });
+        rows.forEach(function (r) {
+          out[String(r.id)] = {
+            rolls:       parseInt(r.rolls, 10) || 0,
+            producedQty: parseFloat(r.producedQty) || 0,
+            firstDate:   _parseDate(r.firstDate),
+            lastDate:    _parseDate(r.lastDate),
+            firstLot:    r.firstLot != null ? String(r.firstLot) : '',
+            lastLot:     r.lastLot  != null ? String(r.lastLot)  : ''
+          };
+        });
+      }
+      return out;
+    },
+
+    getProductionRolls: async function (orderId) {
+      if (Soft1Bridge.isMock) {
+        var p = (await DataService.getProduction([orderId]))[orderId];
+        if (!p) return [];
+        var rows = [];
+        for (var i = 1; i <= p.rolls; i++) rows.push({ fincode: 'ΚΠ' + (378540 + i), trndate: new Date(), qty: Math.round(p.producedQty / p.rolls * 100) / 100, lot: '26091400' + i, whouse: 1002 });
+        return rows;
+      }
+      return Soft1Bridge.dataset('GetProductionRolls', { findoc: parseInt(orderId, 10) });
+    },
+
     // ── Production calendar (CCCFXPCAL) ────────────────────────────────────
     calendar: function (action, body) { return Soft1Bridge.calendar(action, body || {}); },
 

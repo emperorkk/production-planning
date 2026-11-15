@@ -180,6 +180,7 @@
             (w > 80 ? '<span class="block-hours">' + durationHours.toFixed(1) + 'ω</span>' : '') +
           '</div>' +
           '<div class="deadline-marker"></div>' +
+          _prodBar(order) +
           (locked ? '' : '<div class="resize-handle" title="Αλλαγή διάρκειας"></div>');
 
         // Tooltip with breakdown
@@ -197,6 +198,12 @@
         if (global.WorkTime) {
           var wm = WorkTime.workBetween(order.machineId, order.plannedStart, order.plannedEnd);
           workTxt = ' (εργάσιμες ' + (wm / 60).toFixed(1) + 'ω)';
+        }
+        if (order._prod) {
+          var pr = order._prod;
+          tipExtra += '\n\n🏭 Παραγωγή: ' + pr.producedQty.toLocaleString('el-GR') + ' / ' +
+                      (order.kilos || 0).toLocaleString('el-GR') + ' (' + _prodPct(order) + '%) · ' + pr.rolls + ' ρολά' +
+                      (pr.firstLot ? '\nLot: ' + pr.firstLot + (pr.lastLot && pr.lastLot !== pr.firstLot ? ' – ' + pr.lastLot : '') : '');
         }
         if (order._skipSetup) tipExtra += '\n♻ Συνδυασμός με προηγούμενη — χωρίς setup';
         if (state._chainViol && state._chainViol[order.id]) tipExtra += '\n⇅ ' + state._chainViol[order.id];
@@ -510,6 +517,20 @@
     var parts = String(t).split(':');
     var totalHours = parseInt(parts[0], 10) + (parseInt(parts[1], 10) || 0) / 60;
     return (totalHours - DAY_START_HOUR) * pxPerHour;
+  }
+
+  // ── Production progress bar inside a block (CCCFXPRDOPRD) ───────────────
+  function _prodPct(order) {
+    var p = order._prod;
+    if (!p || !(order.kilos > 0)) return 0;
+    return Math.round(p.producedQty / order.kilos * 100);
+  }
+  function _prodBar(order) {
+    if (!order._prod || !order._prod.rolls) return '';
+    var pct = _prodPct(order);
+    return '<div class="prod-bar' + (pct >= 98 ? ' done' : '') + '"><div class="prod-fill" style="width:' +
+           Math.min(100, pct) + '%"></div></div>' +
+           '<span class="prod-badge" title="Ρολά παραγωγής">' + order._prod.rolls + '&#9711;</span>';
   }
 
   // ── Daily load heatmap strip at the bottom of every machine row ─────────

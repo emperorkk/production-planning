@@ -252,6 +252,7 @@
       GanttRenderer.renderBlocks(state);
       DragDropManager.attachBlockListeners();
       _renderIssues();
+      _loadProduction(myToken);        // background: rolls / produced qty for the orders shown
 
       // --- Step C: unscheduled orders (paged) ------------------------------
       _setLoadingMsg('Φόρτωση μη προγραμματισμένων… (0)');
@@ -306,6 +307,26 @@
 
     // Yield to the browser, then continue
     setTimeout(function () { _loadUnscheduledPage(offset + UNSCHED_PAGE_SIZE, myToken); }, 0);
+  }
+
+  // ── Production progress (CCCFXPRDOPRD) for the orders on this week's Gantt ──
+  var _prodTimer = null;
+  async function _loadProduction(myToken) {
+    clearTimeout(_prodTimer);
+    var wEnd = new Date(state.weekStart); wEnd.setDate(wEnd.getDate() + 7);
+    var ids = state.orders.filter(function (o) {
+      return o.plannedStart && o.plannedEnd && o.plannedEnd > state.weekStart && o.plannedStart < wEnd;
+    }).map(function (o) { return o.id; });
+    try {
+      var prod = await DataService.getProduction(ids);
+      if (myToken !== _loadToken) return;
+      ids.forEach(function (id) { var o = state.orderById[id]; if (o) o._prod = prod[id] || null; });
+      GanttRenderer.renderBlocks(state);
+      DragDropManager.attachBlockListeners();
+    } catch (e) {
+      console.warn('production:', e);
+    }
+    _prodTimer = setTimeout(function () { if (myToken === _loadToken) _loadProduction(myToken); }, 5 * 60000);
   }
 
   function _onLoadComplete() {

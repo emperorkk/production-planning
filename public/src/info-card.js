@@ -153,13 +153,36 @@
       }
     }
 
+    var prodHtml = '<div class="mc-prod"><div class="mc-chain-h">Παραγωγή (ρολά / lots)</div>' +
+                   '<div class="mc-prod-body mc-muted">Φόρτωση…</div></div>';
+
     return show(anchor, {
       title: o.id + (o.description ? ' — ' + o.description : ''),
       topHtml: sched,
-      bottomHtml: chainHtml,
+      bottomHtml: prodHtml + chainHtml,
       bind: function (card) {
         var j = card.querySelector('[data-jump]');
         if (j) j.addEventListener('click', function () { close(); _ctx.onJump(o); });
+        var seq = _reqSeq;
+        DataService.getProductionRolls(orderId).then(function (rolls) {
+          if (seq !== _reqSeq || !_card) return;
+          var box = card.querySelector('.mc-prod-body');
+          if (!rolls || !rolls.length) { box.textContent = 'Δεν υπάρχει παραγωγή ακόμα.'; return; }
+          var total = rolls.reduce(function (a, r) { return a + (parseFloat(r.qty) || 0); }, 0);
+          var pct = o.kilos > 0 ? Math.round(total / o.kilos * 100) : null;
+          box.className = 'mc-prod-body';
+          box.innerHTML =
+            '<div class="mc-prod-sum"><b>' + _num(total) + '</b> / ' + _num(o.kilos || 0) +
+            (pct != null ? ' (' + pct + '%)' : '') + ' · <b>' + rolls.length + '</b> ρολά</div>' +
+            '<div class="mc-prod-bar"><div style="width:' + Math.min(100, pct || 0) + '%"></div></div>' +
+            '<table class="mc-rolls"><thead><tr><th>Lot</th><th>Ημ/νία</th><th>Ποσ.</th></tr></thead><tbody>' +
+            rolls.map(function (r) {
+              return '<tr><td>' + _esc(r.lot) + '</td><td>' + _esc(_date(r.trndate)) + '</td><td class="n">' + _esc(_num(r.qty)) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+        }).catch(function (e) {
+          if (seq !== _reqSeq || !_card) return;
+          card.querySelector('.mc-prod-body').textContent = 'Σφάλμα: ' + (e.message || e);
+        });
       },
       load: async function () {
         var d = await DataService.getOrderDetails(orderId) || {};

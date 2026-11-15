@@ -15,6 +15,9 @@
 //   GetShifts             monday                  CCCFXPCAL + CCCFXPCALLNS for the week
 //   GetMtrlTree                                   CCCFXPRNOMINAL recipe chain
 //   GetOrderDetails       findoc                  one production order + sales order / customer
+//   GetProduction         findocs ('1,2,3', ≤1000) produced so far per order (CCCFXPRDOPRD: 1 row = 1 roll)
+//                                                 → { id, rolls, producedQty, firstDate, lastDate, firstLot, lastLot }
+//   GetProductionRolls    findoc                  every roll of one order → { fincode, trndate, qty, lot, mtrlot, whouse }
 // Writes:
 //   SaveSchedule          orders:[{findoc, machine|null, start|null, end|null,
 //                                  origMachine, origStart, origEnd}]   (orig* = values when loaded;
@@ -323,6 +326,43 @@ function GetOrderDetails(Prms)
    " INNER JOIN MTRL M ON M.MTRL = L0.MTRL" +
    " WHERE F.FINDOC = " + parseInt(Prms.findoc, 10) +
    " AND F.SOSOURCE = 5171 AND F.COMPANY = " + company());
+}
+
+// ── Production progress (CCCFXPRDOPRD — one row per produced roll) ─────────
+// Only the requested orders (the planner sends the FINDOCs it shows), company-checked via FINDOC.
+function _idList(v)
+{
+ var s = String(v == null ? '' : v).replace(/\s+/g, '');
+ if (!/^\d+(,\d+)*$/.test(s)) return null;
+ var parts = s.split(',');
+ if (parts.length > 1000) return null;
+ return parts.join(',');
+}
+
+function GetProduction(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ var ids = _idList(Prms.findocs);
+ if (!ids) return responseError("findocs must be a comma-separated list of up to 1000 integers");
+ return sqlRows(
+   "SELECT P.FINDOC AS id, COUNT(*) AS rolls, SUM(P.QTY1) AS producedQty" +
+   ", MIN(P.TRNDATE) AS firstDate, MAX(P.TRNDATE) AS lastDate" +
+   ", MIN(P.LOTCODE) AS firstLot, MAX(P.LOTCODE) AS lastLot" +
+   " FROM CCCFXPRDOPRD P INNER JOIN FINDOC F ON F.FINDOC = P.FINDOC" +
+   " WHERE F.COMPANY = " + company() + " AND P.FINDOC IN (" + ids + ")" +
+   " GROUP BY P.FINDOC");
+}
+
+function GetProductionRolls(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isInt(Prms.findoc)) return responseError("findoc must be an integer");
+ return sqlRows(
+   "SELECT P.FINCODE AS fincode, P.TRNDATE AS trndate, P.QTY1 AS qty, P.LOTCODE AS lot" +
+   ", P.MTRLOT AS mtrlot, P.WHOUSE AS whouse" +
+   " FROM CCCFXPRDOPRD P INNER JOIN FINDOC F ON F.FINDOC = P.FINDOC" +
+   " WHERE F.COMPANY = " + company() + " AND P.FINDOC = " + parseInt(Prms.findoc, 10) +
+   " ORDER BY P.TRNDATE, P.LOTCODE");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -16,7 +16,9 @@ const DATASETS = {
   GetProductionOrders:  ['weekStart', 'weekEnd'],
   GetShifts:            ['monday'],
   GetMtrlTree:          [],
-  GetOrderDetails:      ['findoc']
+  GetOrderDetails:      ['findoc'],
+  GetProduction:        ['findocs'],
+  GetProductionRolls:   ['findoc']
 };
 
 export async function handleData(request, env) {

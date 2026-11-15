@@ -87,6 +87,8 @@ scripts/sync-to-softone.mjs       ← LEGACY: copies legacy/embedded/ → C:\Sof
    | `GetShifts` | `monday` (YYYY-MM-DD) | 〃 |
    | `GetMtrlTree` | — | 〃 |
    | `GetOrderDetails` | `findoc` | 〃 |
+   | `GetProduction` | `findocs` ('1,2,3') | 〃 (rolls, producedQty, lots per order) |
+   | `GetProductionRolls` | `findoc` | 〃 (one row per roll) |
    | `SaveSchedule` | `orders: [{findoc, machine, start, end, origMachine, origStart, origEnd}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, conflicts, errors }` |
    | `GetCalendarWeek` | `monday` | `{ success, exists, header, data }` |
    | `GetCalendarWeeks` | `from`, `to` | `{ success, data }` |

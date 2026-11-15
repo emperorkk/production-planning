@@ -199,6 +199,7 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
 - ✅ **Worker-only** — embedded mode deprecated & frozen in `legacy/embedded/`; bridge is web | mock
 - ✅ **App icon** (OpenAI-generated, source `assets/icon-source-1024.png`) → `public/favicon.ico`, `public/icons/*`, `public/manifest.webmanifest`
 - ✅ **Machine info card** — click a machine name → native Soft1 `getData` (`OBJECT=RSRC`, `KEY=<RSRC id>`, fixed `LOCATEINFO` in `worker/routes/record.js`) via `/api/record` → floating card (`public/src/info-card.js`) + eligible phases from planner state
+- ✅ **v0.5.0 — production progress** from `CCCFXPRDOPRD` (1 row = 1 produced roll; `QTY1`, `LOTCODE`): `GetProduction` is called only for the orders on the visible week's Gantt (chunks of 500, refresh every 5'), block shows progress bar (produced / order QTY1) + roll count; order card lists the rolls/lots (`GetProductionRolls`, on demand)
 - ✅ **v0.4.0 — calendar + planning features**
   - **Production calendar (CCCFXPCAL)** via custom AJS (`GetCalendarWeek`, `GetCalendarWeeks`, `CreateCalendarWeek`, `SaveCalendarWeek`, `FillMissingWeeks`): planner banner when the week is missing (create from previous / empty), click a no-shift gap → modal (Soft1 shift 1/2/3 or provisional), right-click a real shift → remove from Soft1, provisional → «Σε Soft1» conversion, and `calendar.html` grid editor (row/column toggles, copy, fill range)
   - **Shift-aware durations** (`work-time.js`): duration = working minutes; start snaps to next shift, gaps skipped; ghost turns red when it runs past the week's shifts
@@ -228,6 +229,8 @@ UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC
    | `GetShifts` | `monday` (YYYY-MM-DD) | 〃 |
    | `GetMtrlTree` | — | 〃 |
    | `GetOrderDetails` | `findoc` | 〃 (1 row) |
+   | `GetProduction` | `findocs` ('1,2,3', ≤1000) | per order: `{id, rolls, producedQty, firstDate, lastDate, firstLot, lastLot}` |
+   | `GetProductionRolls` | `findoc` | every roll: `{fincode, trndate, qty, lot, mtrlot, whouse}` |
    | `SaveSchedule` | `orders:[{findoc, machine\|null, start\|null, end\|null, origMachine, origStart, origEnd}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, conflicts, errors[] }` |
    | `GetCalendarWeek` | `monday` | `{ success, exists, header{id,code,wk}, data:[machine rows + S11..S73] }` |
    | `GetCalendarWeeks` | `from`, `to` | `{ success, data:[{id, code, wk, monday}] }` |
