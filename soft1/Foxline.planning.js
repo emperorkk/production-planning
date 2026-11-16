@@ -29,6 +29,16 @@
 //   CreateCalendarWeek    monday, copy('previous'|'none')  → { success, id, code, copiedFrom }
 //   SaveCalendarWeek      monday, lines:[{rsrc, s:'21 chars 0/1 (S11..S73)'}] → { success, updated, inserted }
 //   FillMissingWeeks      from, to (≤ 26 weeks)   → { success, created:[codes], skipped:[codes] }
+// Διαχείριση παραγωγής (production.html — mobile web app; Pm* = production management):
+//   PmGetRunningJobs                              orders running now (STAGELINENUM 1 setup / 2 production,
+//                                                 or a roll in the last 2 h) + progress + operator
+//   PmGetMachineStatus                            active machines + last roll time / order
+//   PmGetMachineActivity  day (YYYY-MM-DD)        roll timestamps per machine, day 06:00 → next day 06:00 (+ margin)
+//   PmGetMachineList                              RSRC editable values (setup, wait, speed, active, remarks)
+//   PmSearchProductionOrders q, status(open|done|all), machine, limit(≤200)
+//   PmSearchCustomerOrders   q, limit(≤200)       sales orders (SOSOURCE 1351) that have production orders
+//   PmGetCustomerOrder       findoc               production orders of one sales order
+//   (RSRC writes go through native setData — worker /api/machine — not through this script)
 // Misc:
 //   Ping                                          → { success, user, company }
 //
@@ -674,4 +684,175 @@ function SaveSchedule(Prms)
 
  if (resp.errors.length > 0) resp.success = false;
  return resp;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Διαχείριση παραγωγής (production.html) — Pm* functions
+// Roll time = MTRLOT.INSDATE (the scale creates one MTRLOT per roll, see Production.scale setStock),
+// falling back to CCCFXPRDOPRD.TRNDATE.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Free-text search value → safe LIKE fragment (no quotes / wildcards, ≤ 60 chars)
+function _likeText(v)
+{
+ var s = String(v == null ? '' : v).replace(/^\s+|\s+$/g, '');
+ if (s.length > 60) s = s.substr(0, 60);
+ return s.replace(/'/g, "''").replace(/[%_\[\]]/g, '');
+}
+
+function _limit(v, def, max)
+{
+ var n = isInt(v) ? parseInt(v, 10) : def;
+ if (n < 1 || n > max) n = def;
+ return n;
+}
+
+// Produced so far for F.FINDOC (OUTER APPLY → P.rolls, P.producedQty, P.lastRoll)
+function _prodApply()
+{
+ return " OUTER APPLY (SELECT COUNT(*) AS rolls, SUM(PP.QTY1) AS producedQty" +
+        ", MAX(ISNULL(T.INSDATE, PP.TRNDATE)) AS lastRoll" +
+        " FROM CCCFXPRDOPRD PP LEFT OUTER JOIN MTRLOT T ON T.MTRLOT = PP.MTRLOT" +
+        " WHERE PP.FINDOC = F.FINDOC) P";
+}
+
+// Common production-order columns (aliases F, D, L0, LS, S, M, P)
+function _pmOrderSelect()
+{
+ return "SELECT F.FINDOC AS id, F.FINCODE AS fincode, F.TRNDATE AS trndate" +
+        ", F.CCCFXRSRC AS machine" +
+        ", (SELECT NAME FROM RSRC WHERE RSRC = F.CCCFXRSRC AND COMPANY = F.COMPANY) AS machineName" +
+        ", M.CODE AS itemCode, M.NAME AS itemName" +
+        ", L0.QTY1 AS kilos, L0.QTY2 AS linearMetres" +
+        ", L0.DATE01 AS plannedStart, L0.DATE02 AS plannedEnd" +
+        ", isnull(LS.DELIVDATE, L0.DELIVDATE) AS deliveryDate" +
+        ", D.MTRSTS AS status, D.STAGE AS phase, L0.STAGELINENUM AS stageLine" +
+        ", S.FINDOC AS salesOrderId, S.FINCODE AS salesOrder, S.VARCHAR01 AS customerPO" +
+        ", (SELECT NAME FROM TRDR WHERE TRDR = S.TRDR) AS customer" +
+        ", P.rolls, P.producedQty, P.lastRoll" +
+        " FROM FINDOC F" +
+        " INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
+        " INNER JOIN MTRLINES L0 ON L0.FINDOC = F.FINDOC AND L0.MTRTYPE = 1" +
+        " LEFT OUTER JOIN MTRLINES LS ON LS.FINDOC = L0.FINDOCS AND LS.MTRLINES = L0.MTRLINESS" +
+        " LEFT OUTER JOIN FINDOC S ON S.FINDOC = L0.FINDOCS" +
+        " INNER JOIN MTRL M ON M.MTRL = L0.MTRL" +
+        _prodApply() +
+        " WHERE F.SOSOURCE = 5171 AND F.COMPANY = " + company();
+}
+
+function PmGetRunningJobs(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ var sql = _pmOrderSelect();
+ sql = sql.replace(" FROM FINDOC F",
+   ", (SELECT TOP 1 U.NAME FROM CCCFXPRDOSTAGE G LEFT OUTER JOIN USERS U ON U.USERS = G.INSUSER" +
+   "   WHERE G.FINDOC = F.FINDOC ORDER BY G.INSDATE DESC) AS operator" +
+   " FROM FINDOC F");
+ return sqlRows(sql +
+   " AND D.MTRSTS <> 1" +
+   " AND (L0.STAGELINENUM IN (1, 2) OR P.lastRoll >= DATEADD(HOUR, -2, GETDATE()))" +
+   " ORDER BY machineName, F.FINDOC");
+}
+
+function PmGetMachineStatus(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ return sqlRows(
+   "SELECT R.RSRC AS id, R.CODE AS code, R.NAME AS name, R.CCCFXSTAGE AS phase" +
+   ", A.lastRoll, A.lastFindoc" +
+   ", (SELECT FINCODE FROM FINDOC WHERE FINDOC = A.lastFindoc) AS lastFincode" +
+   " FROM RSRC R" +
+   " OUTER APPLY (SELECT TOP 1 ISNULL(T.INSDATE, PP.TRNDATE) AS lastRoll, PP.FINDOC AS lastFindoc" +
+   "   FROM CCCFXPRDOPRD PP INNER JOIN FINDOC F ON F.FINDOC = PP.FINDOC" +
+   "   LEFT OUTER JOIN MTRLOT T ON T.MTRLOT = PP.MTRLOT" +
+   "   WHERE F.CCCFXRSRC = R.RSRC AND F.COMPANY = R.COMPANY AND PP.TRNDATE >= GETDATE() - 30" +
+   "   ORDER BY ISNULL(T.INSDATE, PP.TRNDATE) DESC) A" +
+   " WHERE R.SODTYPE = 25 AND R.RSRCTYPE < 50 AND R.ISACTIVE = 1 AND R.COMPANY = " + company() +
+   " ORDER BY R.CODE");
+}
+
+function PmGetMachineActivity(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isIsoDate(Prms.day)) return responseError("day must be YYYY-MM-DD");
+ var d = "'" + Prms.day.replace(/-/g, '') + "'";
+ return sqlRows(
+   "SELECT F.CCCFXRSRC AS machine, ISNULL(T.INSDATE, PP.TRNDATE) AS t, PP.QTY1 AS qty" +
+   ", PP.FINDOC AS findoc, F.FINCODE AS fincode" +
+   " FROM CCCFXPRDOPRD PP INNER JOIN FINDOC F ON F.FINDOC = PP.FINDOC" +
+   " LEFT OUTER JOIN MTRLOT T ON T.MTRLOT = PP.MTRLOT" +
+   " WHERE F.COMPANY = " + company() +
+   " AND PP.TRNDATE >= DATEADD(DAY, -1, " + d + ") AND PP.TRNDATE < DATEADD(DAY, 2, " + d + ")" +
+   " ORDER BY F.CCCFXRSRC, ISNULL(T.INSDATE, PP.TRNDATE)");
+}
+
+function PmGetMachineList(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ return sqlRows(
+   "SELECT R.RSRC AS id, R.CODE AS code, R.NAME AS name, R.ISACTIVE AS isActive" +
+   ", R.SETUPTIME AS setupTime, R.WAITTIME AS waitTime, R.MPRDQTY AS speed" +
+   ", R.CCCFXSTAGE AS phase" +
+   ", (SELECT NAME FROM STAGE WHERE COMPANY = R.COMPANY AND STAGE = R.CCCFXSTAGE) AS phaseName" +
+   ", R.REMARKS AS remarks" +
+   " FROM RSRC R" +
+   " WHERE R.SODTYPE = 25 AND R.RSRCTYPE < 50 AND R.COMPANY = " + company() +
+   " ORDER BY R.CODE");
+}
+
+function PmSearchProductionOrders(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ var q = _likeText(Prms.q);
+ var where = "";
+ if (q != '') {
+   var like = " LIKE N'%" + q + "%'";
+   where += " AND (F.FINCODE" + like + " OR M.CODE" + like + " OR M.NAME" + like +
+            " OR S.FINCODE" + like + " OR S.VARCHAR01" + like +
+            " OR EXISTS (SELECT 1 FROM TRDR C WHERE C.TRDR = S.TRDR AND C.NAME" + like + "))";
+ }
+ if (Prms.status == 'open') where += " AND D.MTRSTS <> 1";
+ else if (Prms.status == 'done') where += " AND D.MTRSTS = 1";
+ if (isInt(Prms.machine)) where += " AND F.CCCFXRSRC = " + parseInt(Prms.machine, 10);
+ if (q == '' && !isInt(Prms.machine) && Prms.status != 'open')
+   where += " AND F.TRNDATE >= GETDATE() - 90";      // no filter → recent only
+ return sqlRows(
+   _pmOrderSelect().replace("SELECT ", "SELECT TOP " + _limit(Prms.limit, 100, 200) + " ") +
+   where + " ORDER BY F.TRNDATE DESC, F.FINDOC DESC");
+}
+
+function PmSearchCustomerOrders(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ var q = _likeText(Prms.q);
+ var where = "";
+ if (q != '') {
+   var like = " LIKE N'%" + q + "%'";
+   where += " AND (S.FINCODE" + like + " OR S.VARCHAR01" + like + " OR C.NAME" + like + " OR C.CODE" + like + ")";
+ }
+ else where += " AND S.TRNDATE >= GETDATE() - 90";
+ return sqlRows(
+   "SELECT TOP " + _limit(Prms.limit, 100, 200) +
+   " S.FINDOC AS id, S.FINCODE AS fincode, S.TRNDATE AS trndate, S.VARCHAR01 AS customerPO" +
+   ", C.CODE AS customerCode, C.NAME AS customer" +
+   ", X.orders, X.done, X.firstDelivery" +
+   " FROM FINDOC S" +
+   " LEFT OUTER JOIN TRDR C ON C.TRDR = S.TRDR" +
+   " CROSS APPLY (SELECT COUNT(*) AS orders" +
+   "   , SUM(CASE WHEN D.MTRSTS = 1 THEN 1 ELSE 0 END) AS done" +
+   "   , MIN(L.DELIVDATE) AS firstDelivery" +
+   "   FROM MTRLINES L INNER JOIN MTRDOC D ON D.FINDOC = L.FINDOC" +
+   "   WHERE L.FINDOCS = S.FINDOC AND L.SOSOURCE = 5171 AND L.MTRTYPE = 1) X" +
+   " WHERE S.SOSOURCE = 1351 AND S.COMPANY = " + company() + " AND X.orders > 0" +
+   where + " ORDER BY S.TRNDATE DESC, S.FINDOC DESC");
+}
+
+function PmGetCustomerOrder(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isInt(Prms.findoc)) return responseError("findoc must be an integer");
+ return sqlRows(_pmOrderSelect() +
+   " AND L0.FINDOCS = " + parseInt(Prms.findoc, 10) +
+   " ORDER BY D.STAGE, F.FINDOC");
 }

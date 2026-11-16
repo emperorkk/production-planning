@@ -1,4 +1,5 @@
 import { loginAndAuthenticate, changePassword }              from '../soft1-client.js';
+import { normalizeAccess, appIdFor, sessionAccess, sessionAppId, homeFor } from '../access.js';
 import { createSession, destroySession, getSession, sessionCookie, clearCookie, SESSION_TTL } from '../session.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
@@ -15,20 +16,25 @@ export async function handleLogin(request, env) {
   catch { return json({ error: 'Invalid JSON body' }, { status: 400 }); }
 
   const { username, password, company, branch } = body;
+  const access = normalizeAccess(body.access);
+  const appId  = appIdFor(env, access);
   if (!username || !password) {
     return json({ error: 'username and password are required' }, { status: 400 });
   }
 
   try {
-    const auth = await loginAndAuthenticate(env, { username, password, company, branch });
+    const auth = await loginAndAuthenticate(env, { username, password, company, branch, appId });
     const sid  = await createSession(env, {
       clientID: auth.clientID,
       company:  auth.company,
       branch:   auth.branch,
-      user:     auth.user
+      user:     auth.user,
+      access,
+      appId
     });
+    const session = { access };
     return json(
-      { ok: true, user: auth.user, company: auth.company, branch: auth.branch },
+      { ok: true, user: auth.user, company: auth.company, branch: auth.branch, access, home: homeFor(session, request) },
       { headers: { 'set-cookie': sessionCookie(sid) } }
     );
   } catch (err) {
@@ -58,7 +64,7 @@ export async function handleChangePassword(request, env) {
   if (newPw.length > 100)        return json({ error: 'Πολύ μεγάλος κωδικός' }, { status: 400 });
 
   try {
-    await changePassword(env, session.clientID, oldPw, newPw);
+    await changePassword(env, session.clientID, oldPw, newPw, sessionAppId(env, session));
     console.log(`changePassword ok for ${session.user}`);       // never log the passwords
     return json({ ok: true });
   } catch (err) {
@@ -73,6 +79,7 @@ export async function handleMe(request, env) {
     user:    session.user,
     company: session.company,
     branch:  session.branch,
+    access:  sessionAccess(session),
     expiresAt: session.createdAt ? session.createdAt + SESSION_TTL * 1000 : null
   });
 }

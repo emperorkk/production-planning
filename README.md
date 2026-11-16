@@ -1,6 +1,11 @@
 # Production Planning — Vlachos Bros
 
-Visual production-scheduling planner for a Soft1 ERP environment, served by a **Cloudflare Worker**:
+Two web apps for a Soft1 ERP environment, served by one **Cloudflare Worker** with one Soft1 login:
+
+- **Προγραμματισμός** (`production-planner.html`) — desktop Gantt production planner.
+- **Διαχείριση παραγωγής** (`production.html`) — mobile-first, installable (PWA) app: running jobs, machine idle time, production / customer order search, machine (RSRC) editing.
+
+Access level is picked on the login page: *Προγραμματισμός + Διαχείριση* (Soft1 appId 1199) or *Διαχείριση παραγωγής* only (appId 1200). Desktop + full access lands on the planner; phones and production-only access land on the production app (the planner is desktop-only).
 
 ```
 browser ──/api/data, /api/save──▶ Worker ──/s1services/JS/Foxline.planning/<fn>──▶ Soft1
@@ -21,7 +26,11 @@ public/                           ← served as static assets by the Worker
 ├── login.html                    ← web-only login page
 ├── production-planner.html       ← main app
 ├── calendar.html                 ← production calendar editor (CCCFXPCAL)
+├── production.html               ← Διαχείριση παραγωγής (mobile-first, burger menu, PWA)
+├── production.webmanifest, sw.js ← PWA install (network-only service worker)
 └── src/
+    ├── app-shell.js / .css       ← shared chrome: app switcher · 🔑 change password · Έξοδος
+    ├── production-app.js / production.css ← Διαχείριση παραγωγής (Vlachos Bros red/black)
     ├── soft1-bridge.js           ← web | mock — /api/data + /api/save
     ├── data-service.js           ← dataset calls + row mapping (no SQL)
     ├── scheduler-engine.js       ← conflict / deadline / utilisation logic
@@ -37,11 +46,13 @@ worker/                           ← Cloudflare Worker (nodejs_compat)
 ├── index.js                      ← entry — routes, static assets, auth gate
 ├── soft1-client.js               ← Soft1 Web Services HTTP client
 ├── session.js                    ← KV-backed sessions (random id)
+├── access.js                     ← access levels (full 1199 / production 1200), landing, mobile detection
 └── routes/
     ├── auth.js                   ← /api/login, /api/logout, /api/me
     ├── data.js                   ← /api/data (named datasets), /api/save (structured schedule write)
     ├── record.js                 ← /api/record (native getData, RSRC)
-    └── calendar.js               ← /api/calendar (production calendar CCCFXPCAL)
+    ├── calendar.js               ← /api/calendar (production calendar CCCFXPCAL)
+    └── production.js             ← /api/machine (native setData RSRC)
 
 soft1/Foxline.planning.js         ← Soft1 AJS web service — ALL planner SQL lives here
 

@@ -1,5 +1,6 @@
 import { getDataset, saveSchedule } from '../soft1-client.js';
 import { getSession }                from '../session.js';
+import { sessionAccess }             from '../access.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 function json(body, init = {}) {
@@ -21,6 +22,21 @@ const DATASETS = {
   GetProductionRolls:   ['findoc']
 };
 
+// «Διαχείριση παραγωγής» (production.html) datasets — allowed for both access levels.
+const PRODUCTION_DATASETS = {
+  PmGetRunningJobs:      [],
+  PmGetMachineStatus:    [],
+  PmGetMachineActivity:  ['day'],
+  PmGetMachineList:      [],
+  PmSearchProductionOrders: ['q', 'status', 'machine', 'limit'],
+  PmSearchCustomerOrders:   ['q', 'limit'],
+  PmGetCustomerOrder:    ['findoc']
+};
+
+// Planner datasets the production app may also read (access 'production').
+const SHARED_DATASETS = new Set(['GetMachines', 'GetPhaseMachines', 'GetShifts', 'GetOrderDetails',
+                                 'GetProduction', 'GetProductionRolls']);
+
 export async function handleData(request, env) {
   if (request.method !== 'POST') return json({ error: 'POST required' }, { status: 405 });
   const session = await getSession(request, env);
@@ -31,8 +47,12 @@ export async function handleData(request, env) {
   catch { return json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const name    = body.dataset;
-  const allowed = Object.hasOwn(DATASETS, name) ? DATASETS[name] : null;
+  const allowed = Object.hasOwn(DATASETS, name) ? DATASETS[name]
+                : Object.hasOwn(PRODUCTION_DATASETS, name) ? PRODUCTION_DATASETS[name] : null;
   if (!allowed) return json({ error: 'Unknown dataset: ' + name }, { status: 400 });
+  if (sessionAccess(session) !== 'full' && !Object.hasOwn(PRODUCTION_DATASETS, name) && !SHARED_DATASETS.has(name)) {
+    return json({ error: 'Δεν επιτρέπεται με αυτό το επίπεδο πρόσβασης' }, { status: 403 });
+  }
 
   const params = {};
   for (const k of allowed) {

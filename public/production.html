@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/production.webmanifest" />
+  <meta name="theme-color" content="#111111" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Παραγωγή" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <title>Διαχείριση παραγωγής — Vlachos Bros</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap" />
+  <link rel="stylesheet" href="src/app-shell.css" />
+  <link rel="stylesheet" href="src/production.css" />
+</head>
+<body>
+
+<header class="pm-header">
+  <button id="pm-burger" class="pm-icon-btn" type="button" aria-label="Μενού" aria-controls="pm-drawer" aria-expanded="false">
+    <span class="pm-burger-lines" aria-hidden="true"></span>
+  </button>
+  <img class="pm-mark" src="icons/vb-mark.png" alt="" width="26" height="28" />
+  <div class="pm-titles">
+    <div class="pm-title">Διαχείριση παραγωγής</div>
+    <div id="pm-view-title" class="pm-subtitle">—</div>
+  </div>
+  <button id="pm-refresh" class="pm-icon-btn" type="button" aria-label="Ανανέωση" title="Ανανέωση">&#x21bb;</button>
+</header>
+
+<div id="pm-mock" class="pm-mock" hidden>DEMO — προσομοιωμένα δεδομένα (εκτός Soft1)</div>
+
+<div id="pm-scrim" class="pm-scrim" hidden></div>
+<nav id="pm-drawer" class="pm-drawer" aria-label="Μενού" aria-hidden="true">
+  <div class="pm-drawer-head">
+    <img src="icons/vb-logo.png" alt="Vlachos Bros" width="56" />
+    <div>
+      <div class="pm-drawer-title">Διαχείριση παραγωγής</div>
+      <div class="pm-drawer-user"><span id="pm-user"></span> · <span data-app-version></span></div>
+    </div>
+  </div>
+  <div class="pm-nav">
+    <a class="pm-nav-item" href="#running"   data-view="running"><span class="as-icon">&#9881;</span><span>Τρέχουσες παραγωγές</span></a>
+    <a class="pm-nav-item" href="#idle"      data-view="idle"><span class="as-icon">&#9208;</span><span>Αδράνεια μηχανών</span></a>
+    <a class="pm-nav-item" href="#orders"    data-view="orders"><span class="as-icon">&#128269;</span><span>Εντολές παραγωγής</span></a>
+    <a class="pm-nav-item" href="#customers" data-view="customers"><span class="as-icon">&#128230;</span><span>Παραγγελίες πελατών</span></a>
+    <a class="pm-nav-item" href="#machines"  data-view="machines"><span class="as-icon">&#128295;</span><span>Μηχανές</span></a>
+  </div>
+  <div class="pm-nav pm-nav-sec" id="pm-shell-menu">
+    <button id="pm-install" class="as-menu-item" type="button" hidden><span class="as-icon">&#11015;</span><span class="as-label">Εγκατάσταση εφαρμογής</span></button>
+  </div>
+</nav>
+
+<main id="pm-main">
+
+  <!-- Τρέχουσες παραγωγές -->
+  <section id="view-running" class="pm-view" hidden>
+    <div class="pm-toolbar">
+      <span id="running-summary" class="pm-muted"></span>
+      <span class="pm-spacer"></span>
+      <span id="running-updated" class="pm-muted pm-small"></span>
+    </div>
+    <div id="running-list" class="pm-cards"></div>
+  </section>
+
+  <!-- Αδράνεια μηχανών -->
+  <section id="view-idle" class="pm-view" hidden>
+    <div class="pm-toolbar pm-wrap">
+      <button id="idle-prev" class="pm-btn pm-btn-sm" type="button" aria-label="Προηγούμενη ημέρα">&#8592;</button>
+      <input id="idle-day" class="pm-input pm-date" type="text" aria-label="Ημέρα" />
+      <button id="idle-next" class="pm-btn pm-btn-sm" type="button" aria-label="Επόμενη ημέρα">&#8594;</button>
+      <button id="idle-today" class="pm-btn pm-btn-sm" type="button">Σήμερα</button>
+      <label class="pm-small pm-muted" for="idle-threshold">Όριο</label>
+      <select id="idle-threshold" class="pm-input pm-select-sm">
+        <option value="15">15'</option>
+        <option value="30" selected>30'</option>
+        <option value="60">60'</option>
+        <option value="120">2 ώρες</option>
+      </select>
+    </div>
+    <p class="pm-hint">Αδράνεια = διάστημα μέσα σε βάρδια χωρίς καταγραφή ρολού, μεγαλύτερο από το όριο. Ημέρα παραγωγής 06:00 → 06:00.</p>
+    <div id="idle-list" class="pm-cards"></div>
+  </section>
+
+  <!-- Εντολές παραγωγής -->
+  <section id="view-orders" class="pm-view" hidden>
+    <form id="orders-form" class="pm-search" role="search">
+      <input id="orders-q" class="pm-input" type="search" placeholder="Εντολή, είδος, πελάτης, παραγγελία, PO…" autocomplete="off" />
+      <button class="pm-btn pm-btn-primary" type="submit">Αναζήτηση</button>
+    </form>
+    <div class="pm-toolbar pm-wrap">
+      <div class="pm-chips" role="radiogroup" aria-label="Κατάσταση">
+        <label class="pm-chip"><input type="radio" name="orders-status" value="open" checked /><span>Ανοιχτές</span></label>
+        <label class="pm-chip"><input type="radio" name="orders-status" value="done" /><span>Ολοκληρωμένες</span></label>
+        <label class="pm-chip"><input type="radio" name="orders-status" value="all" /><span>Όλες</span></label>
+      </div>
+      <select id="orders-machine" class="pm-input pm-select-sm" aria-label="Μηχανή"><option value="">Όλες οι μηχανές</option></select>
+    </div>
+    <div id="orders-list" class="pm-cards"></div>
+  </section>
+
+  <!-- Παραγγελίες πελατών -->
+  <section id="view-customers" class="pm-view" hidden>
+    <form id="customers-form" class="pm-search" role="search">
+      <input id="customers-q" class="pm-input" type="search" placeholder="Παραγγελία, πελάτης, PO…" autocomplete="off" />
+      <button class="pm-btn pm-btn-primary" type="submit">Αναζήτηση</button>
+    </form>
+    <div id="customers-list" class="pm-cards"></div>
+  </section>
+
+  <!-- Μηχανές -->
+  <section id="view-machines" class="pm-view" hidden>
+    <div class="pm-toolbar">
+      <input id="machines-q" class="pm-input" type="search" placeholder="Φίλτρο μηχανών…" autocomplete="off" />
+    </div>
+    <div id="machines-list" class="pm-cards"></div>
+  </section>
+
+</main>
+
+<!-- Bottom sheet (details / edit) -->
+<div id="pm-sheet-backdrop" class="pm-sheet-backdrop" hidden>
+  <div id="pm-sheet" class="pm-sheet" role="dialog" aria-modal="true" aria-labelledby="pm-sheet-title">
+    <div class="pm-sheet-head">
+      <div id="pm-sheet-title" class="pm-sheet-title"></div>
+      <button id="pm-sheet-close" class="pm-icon-btn pm-icon-dark" type="button" aria-label="Κλείσιμο">&#10005;</button>
+    </div>
+    <div id="pm-sheet-body" class="pm-sheet-body"></div>
+  </div>
+</div>
+
+<div id="pm-install-help" class="as-backdrop">
+  <div class="as-dialog">
+    <div class="as-dialog-header">&#11015; Εγκατάσταση εφαρμογής</div>
+    <div class="as-dialog-body" id="pm-install-text"></div>
+    <div class="as-dialog-footer"><button id="pm-install-ok" class="as-btn as-btn-confirm" type="button">OK</button></div>
+  </div>
+</div>
+
+<div id="pm-loading" class="pm-loading" hidden><div class="pm-spinner"></div></div>
+<div id="pm-toast" class="as-toast"></div>
+
+<script src="src/date-fmt.js"></script>
+<script src="src/soft1-bridge.js"></script>
+<script src="src/app-shell.js"></script>
+<script src="src/production-app.js"></script>
+<script src="src/version.js"></script>
+</body>
+</html>

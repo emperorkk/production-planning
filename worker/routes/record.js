@@ -1,5 +1,6 @@
 import { getRecord }  from '../soft1-client.js';
 import { getSession } from '../session.js';
+import { sessionAppId } from '../access.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 function json(body, init = {}) {
@@ -28,7 +29,7 @@ export async function handleRecord(request, env) {
 
   try {
     const t0   = Date.now();
-    const data = await getRecord(env, session.clientID, object, key, RECORDS[object]);
+    const data = await getRecord(env, session.clientID, object, key, RECORDS[object], sessionAppId(env, session));
     const ms   = Date.now() - t0;
     return json({ ok: true, data }, { headers: { 'server-timing': `soft1;dur=${ms}` } });
   } catch (err) {

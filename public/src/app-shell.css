@@ -1,0 +1,28 @@
+/* AppShell (src/app-shell.js) — shared buttons, change-password dialog, toast.
+   Self-contained so any page can use it (planner styles.css or production.css). */
+.as-tool { margin-left: 6px; text-decoration: none; }
+.btn.as-tool { background: rgba(255,255,255,.15); color: #fff; }
+.btn.as-tool:hover { background: rgba(255,255,255,.28); }
+.btn.as-password { font-size: 13px; }
+
+.as-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 99990; padding: 16px; }
+.as-backdrop.visible { display: flex; }
+.as-dialog { background: #fff; color: #222; border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,.3); width: 100%; max-width: 420px; overflow: hidden; font-family: inherit; }
+.as-dialog-header { padding: 12px 16px; background: var(--as-header-bg, #2c3e50); color: #fff; font-weight: bold; font-size: 14px; }
+.as-dialog-body { padding: 14px 16px; }
+.as-dialog-body label { display: block; font-size: 11px; color: #555; font-weight: bold; margin: 8px 0 4px; text-transform: uppercase; letter-spacing: .3px; }
+.as-dialog-body input { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; font-family: inherit; }
+.as-hint { font-size: 11px; color: #888; margin-top: 8px; font-style: italic; }
+.as-error { color: #b91c1c; font-size: 12px; min-height: 16px; margin-top: 8px; }
+.as-dialog-footer { padding: 10px 16px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; }
+.as-btn { border: none; border-radius: 4px; padding: 8px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+.as-btn:disabled { opacity: .5; cursor: wait; }
+.as-btn-cancel { background: #ddd; color: #333; }
+.as-btn-confirm { background: var(--as-accent, #e67e22); color: #fff; }
+
+.as-menu-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 18px; background: none; border: none; color: inherit; font: inherit; font-size: 15px; text-align: left; text-decoration: none; cursor: pointer; }
+.as-menu-item:hover, .as-menu-item:focus-visible { background: rgba(255,255,255,.08); }
+.as-menu-item .as-icon { width: 22px; text-align: center; }
+
+.as-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #222; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 99999; }
+.as-toast.visible { opacity: 1; }

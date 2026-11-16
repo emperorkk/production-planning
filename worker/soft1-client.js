@@ -38,8 +38,9 @@ async function callService(env, body) {
  * `objs` is the list of modules/menus the user has access to — we persist it so
  * the UI can hide features the user cannot reach.
  */
-export async function loginAndAuthenticate(env, { username, password, company, branch }) {
-  if (!env.SOFT1_APP_ID) throw new Error('SOFT1_APP_ID is not configured');
+export async function loginAndAuthenticate(env, { username, password, company, branch, appId }) {
+  appId = appId || env.SOFT1_APP_ID;
+  if (!appId) throw new Error('SOFT1_APP_ID is not configured');
 
   // Step 1 — login → temporary clientID + objs[] (allowed COMPANY/BRANCH/MODULE/REFID combos)
   let login;
@@ -48,7 +49,7 @@ export async function loginAndAuthenticate(env, { username, password, company, b
       service:  'login',
       username,
       password,
-      appId:    env.SOFT1_APP_ID
+      appId
     });
   } catch (e) {
     throw new Error('Soft1 login: ' + e.message);
@@ -140,11 +141,11 @@ export async function saveSchedule(env, clientID, orders) {
  *   { service:'getData', clientID, appId, OBJECT, FORM, KEY, LOCATEINFO }
  * Returns the response's `data` ({ TABLE: [ {field: value} ] }).
  */
-export async function getRecord(env, clientID, object, key, locateinfo) {
+export async function getRecord(env, clientID, object, key, locateinfo, appId) {
   const data = await callService(env, {
     service:    'getData',
     clientID,
-    appId:      env.SOFT1_APP_ID,
+    appId:      appId || env.SOFT1_APP_ID,
     OBJECT:     object,
     FORM:       '',
     KEY:        String(key),
@@ -154,14 +155,31 @@ export async function getRecord(env, clientID, object, key, locateinfo) {
 }
 
 /**
+ * Native S1Services setData — update one existing record of a Soft1 object.
+ *   { service:'setData', clientID, appId, OBJECT, KEY, data:{ TABLE:[{field: value}] } }
+ * Goes through the Soft1 object (its validations / events), not raw SQL.
+ */
+export async function setRecord(env, clientID, object, key, data, appId) {
+  const res = await callService(env, {
+    service:  'setData',
+    clientID,
+    appId:    appId || env.SOFT1_APP_ID,
+    OBJECT:   object,
+    KEY:      String(key),
+    data
+  });
+  return res;
+}
+
+/**
  * Native S1Services changePassword — changes the web user's login password.
  *   { service:'changePassword', clientID, appId, OLD, NEW } → { success: true }
  */
-export async function changePassword(env, clientID, oldPassword, newPassword) {
+export async function changePassword(env, clientID, oldPassword, newPassword, appId) {
   await callService(env, {
     service:  'changePassword',
     clientID,
-    appId:    env.SOFT1_APP_ID,
+    appId:    appId || env.SOFT1_APP_ID,
     OLD:      oldPassword,
     NEW:      newPassword
   });

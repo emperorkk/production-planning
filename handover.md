@@ -7,6 +7,8 @@
 
 ## 1. What this project is
 
+Two apps behind one Worker + one Soft1 login: the **planner** (Προγραμματισμός, below) and **Διαχείριση παραγωγής** (`production.html`, mobile-first — see §6b).
+
 A visual **production-scheduling planner** for Vlachos Bros (ΑΦΟΙ ΒΛΑΧΟΥ Α.Β.Ε.Ε., company 1000), a packaging factory running SoftOne ERP. The user is **Konstantinos (kkourentzes@gmail.com)**, GitHub `emperorkk`.
 
 A shop-floor scheduler drags production orders onto a weekly Gantt grid of machines. The planner respects the machines' shift calendar and phase-machine eligibility, computes block duration from machine speed + setup/wait **in working time**, checks the phase chain, shows production progress (rolls/lots) and writes the plan back to Soft1. It also edits the Soft1 production calendar (shifts). **All UI is in Greek; all dates are dd/mm/yyyy.**
@@ -23,7 +25,17 @@ planner    ──/api/data {dataset}──▶ whitelist → /JS/Foxline.planning
            ──/api/record {RSRC}──▶ native getData (OBJECT=RSRC, fixed LOCATEINFO)
            ──/api/change-password ─▶ native changePassword {clientID, appId, OLD, NEW}
            ──/api/me, /api/version, /api/logout
+production ──/api/data {Pm…}────▶ PRODUCTION_DATASETS → /JS/Foxline.planning/Pm… ─▶ custom AJS
+ .html     ──/api/machine ───────▶ native setData OBJECT=RSRC (whitelisted fields)
 ```
+
+**Access levels** (`worker/access.js`, chosen on the login page, stored in the session):
+| access | Soft1 appId | Can use |
+|---|---|---|
+| `full` | `SOFT1_APP_ID` 1199 | planner + calendar + production app |
+| `production` | `SOFT1_APP_ID_PRODUCTION` 1200 | production app only — planner pages redirect to `/production.html`; `/api/save`, `/api/calendar` and planner datasets → 403 |
+
+Sessions from before v0.8 (no `access`) count as `full`. The session's appId is used for getData / setData / changePassword. **Landing:** `/` and post-login → planner for full access on desktop, otherwise `/production.html`. Phones (UA `Mobi`/iPhone/Android Mobile) are always redirected away from the planner pages.
 
 - **Live URL:** https://vbpp.onecode.win (Cloudflare Workers, account **ONECODE Support**, Worker `production-planning`).
 - **Deploy:** Cloudflare Workers Builds deploys **`main`** automatically (`bun install` → `npx wrangler deploy`). Merging to `main` = deploying.
@@ -49,6 +61,7 @@ public/                           ← Worker static assets (all gated by session
 ├── login.html                    ← Soft1 Web Account login (+ version label, icon)
 ├── production-planner.html       ← main app
 ├── calendar.html                 ← production calendar editor (CCCFXPCAL weeks)
+├── production.html               ← Διαχείριση παραγωγής (mobile-first) + production.webmanifest + sw.js (public)
 ├── favicon.ico, icons/*, manifest.webmanifest   ← app icon (OpenAI-generated; source assets/icon-source-1024.png)
 └── src/
     ├── date-fmt.js               ← DateFmt: dd/mm/yyyy display + parse + text-input binding (load first)
@@ -63,7 +76,9 @@ public/                           ← Worker static assets (all gated by session
     ├── print-view.js             ← shop-floor print (per machine → day → shift)
     ├── excel-exporter.js         ← SheetJS export (3 sheets)
     ├── calendar.js / calendar.css← calendar page
-    ├── login.js, version.js      ← login handler; fills [data-app-version]
+    ├── login.js, version.js      ← login (access picker, landing); fills [data-app-version]
+    ├── app-shell.js / .css       ← shared chrome: app switcher · 🔑 change password · Έξοδος (planner toolbar / production menu)
+    ├── production-app.js / production.css ← Διαχείριση παραγωγής (views, mock data for file://)
     ├── styles.css
     └── lib/xlsx.min.js           ← SheetJS bundled (no CDN)
 worker/
@@ -72,11 +87,13 @@ worker/
 ├── encoding.js                   ← decodeSoft1(): UTF-8 if valid, else windows-1253 (own table)
 ├── session.js                    ← KV sessions (random 256-bit id, 8 h TTL), HttpOnly cookie pp_sid
 ├── version.js                    ← VERSION from package.json
+├── access.js                     ← access levels, appId per session, landing, mobile detection
 └── routes/
     ├── auth.js                   ← /api/login, /api/logout, /api/me (+ expiresAt), /api/change-password
     ├── data.js                   ← /api/data (DATASETS whitelist + params), /api/save (validOrder)
     ├── record.js                 ← /api/record (RECORDS whitelist: RSRC + LOCATEINFO)
-    └── calendar.js               ← /api/calendar (ACTIONS: get | weeks | create | save | fill)
+    ├── calendar.js               ← /api/calendar (ACTIONS: get | weeks | create | save | fill)
+    └── production.js             ← /api/machine (setData RSRC: SETUPTIME, WAITTIME, MPRDQTY, ISACTIVE, REMARKS)
 soft1/Foxline.planning.js         ← Soft1 AJS web service — ALL SQL — paste into Soft1
 legacy/embedded/                  ← DEPRECATED x=external planner — FROZEN
 scripts/sync-to-softone.mjs       ← LEGACY: legacy/embedded → C:\SoftOne\Vlachos Bros\ (npm run sync-embedded-legacy)
@@ -95,7 +112,8 @@ handover.md                       ← this file
 | `assets` | `./public`, `html_handling: "none"`, `not_found_handling: "none"`, `run_worker_first: true` |
 | KV `SESSIONS` | `production-planning-SESSIONS` = `2bf8852d955c4bcbb1def4e4d3ccef37` |
 | `SOFT1_API_URL` | `https://01104398142024.oncloud.gr/s1services` |
-| `SOFT1_APP_ID` | `1199` (required — login throws if missing) |
+| `SOFT1_APP_ID` | `1199` (required — access `full`) |
+| `SOFT1_APP_ID_PRODUCTION` | `1200` (access `production` — Διαχείριση παραγωγής only) |
 | `SOFT1_COMPANY` / `SOFT1_BRANCH` | empty → use the `objs[]` entry Soft1 returns at login |
 | `SOFT1_JS_SCRIPT` | `Foxline.planning` |
 
@@ -180,6 +198,15 @@ Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload
 | `CreateCalendarWeek` | `monday`, `copy` ('previous'\|'none') | `{ success, id, code, copiedFrom }` |
 | `SaveCalendarWeek` | `monday`, `lines:[{rsrc, s:'21×0/1'}]` | `{ success, updated, inserted, errors[] }` |
 | `FillMissingWeeks` | `from`, `to` (Mondays, ≤26 weeks) | `{ success, created[], skipped[], errors[] }` |
+| `PmGetRunningJobs` | — | open orders with `STAGELINENUM` 1 (setup) / 2 (production) or a roll in the last 2 h; progress, last roll, operator (latest `CCCFXPRDOSTAGE.INSUSER`) |
+| `PmGetMachineStatus` | — | active machines + last roll time / order |
+| `PmGetMachineActivity` | `day` | roll timestamps per machine (day −1 … +2; client keeps 06:00→06:00) |
+| `PmGetMachineList` | — | RSRC id, code, name, isActive, setupTime, waitTime, speed, phase, phaseName, remarks |
+| `PmSearchProductionOrders` | `q`, `status` (open\|done\|all), `machine`, `limit` ≤200 | production orders (+ customer, sales order, progress) |
+| `PmSearchCustomerOrders` | `q`, `limit` ≤200 | sales orders `SOSOURCE=1351` that have production orders + counts |
+| `PmGetCustomerOrder` | `findoc` | production orders of one sales order |
+
+Pm* roll time = `MTRLOT.INSDATE` (the scale's `setStock` creates one MTRLOT per roll), fallback `CCCFXPRDOPRD.TRNDATE`.
 
 Implementation notes:
 - **ES3 only** (Soft1 JS engine): no `JSON.parse`, arrow functions, `Array.isArray`; dataset → rows via `eval(ds.JSON)`; iterate datasets with `ds.FIRST; while(!ds.EOF){…; ds.NEXT;}`; field by name `ds[name]`.
@@ -203,6 +230,7 @@ Implementation notes:
 | 0.5.1 | European dates `dd/mm/yyyy` everywhere (`date-fmt.js`, text date inputs) |
 | 0.6.0 | Auto-place creates the missing calendar week from the previous one before planning |
 | 0.7.0 | Change password (🔑 next to Έξοδος) via native Soft1 `changePassword` |
+| 0.8.0 | **Διαχείριση παραγωγής** (`production.html`, mobile-first, burger menu, PWA install): running jobs, machine idle overview, production/customer order search, RSRC editing (setData). Shared app shell (switcher/🔑/Έξοδος). Access levels on login (1199 full / 1200 production-only), landing by device. Vlachos Bros branding (login + new app) |
 
 ### Status
 - ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
@@ -238,6 +266,14 @@ Implementation notes:
 - Save: one batched call; per-order failures/conflicts stay dirty with a message; success clears the draft + history.
 - Draft: autosaved to `localStorage` (`pp-draft:<user>:<monday>`); after load you're asked to restore.
 - Production progress refreshes every 5'.
+
+**Διαχείριση παραγωγής (`production.html`)** — §6b
+- Mobile-first; header (burger · logo · title · ↻), drawer menu: Τρέχουσες παραγωγές · Αδράνεια μηχανών · Εντολές παραγωγής · Παραγγελίες πελατών · Μηχανές · (shell) switcher to planner (desktop + full only) · 🔑 · Έξοδος · «Εγκατάσταση εφαρμογής» (beforeinstallprompt; iOS/other → instructions).
+- Running: card per machine (job: setup/production badge, progress kg/%, rolls, last roll, operator, planned end; machines without job = «Χωρίς εργασία»). Auto-refresh 60 s.
+- Idle: day picker (dd/mm/yyyy) + threshold 15/30/60/120'. Production day 06:00→06:00; shift windows from `GetShifts` (1=06–14, 2=14–22, 3=22–06); idle = gap without a roll inside a shift longer than the threshold (up to now). Timeline bar per machine. Notifications: later.
+- Orders: search (fincode, item, customer, sales order, PO) + status chips + machine filter → order sheet (`GetOrderDetails` + rolls). Customers: search sales orders → their production orders.
+- Machines: list + edit sheet (setup, wait, speed, active, remarks) → `/api/machine` → native setData RSRC.
+- Branding: Vlachos Bros red `#ee1c25` / dark red `#be161e` / black, Comfortaa + Source Sans 3 (Google Fonts); logo `icons/vb-logo.png`, mark `icons/vb-mark.png` (from vlachosbrossa.gr). PWA icons still the planner icon.
 
 **Calendar (`calendar.html?week=YYYY-MM-DD`)**: machines × 7 days × 3 shifts; click cell / machine name (row) / day or shift header (column) to toggle; changed cells outlined; hours per machine; create week (from previous / empty); «Συμπλήρωση» fills missing weeks up to a date (≤26); Αποθήκευση στο Soft1 (Ctrl+S); ←/→ weeks.
 
@@ -297,6 +333,8 @@ Implementation notes:
 | Block appearance | `gantt-renderer.js renderBlocks()` + `styles.css` |
 | Cards | `info-card.js` (machine/order), native records `worker/routes/record.js` |
 | Dates | `public/src/date-fmt.js` |
+| Production app | `public/src/production-app.js` + AJS `Pm*` + `worker/routes/data.js PRODUCTION_DATASETS` |
+| Access / landing | `worker/access.js`, `public/src/login.js`, `public/src/app-shell.js` |
 | Worker routes | `worker/index.js` + `worker/routes/*.js` |
 | Soft1 HTTP / encoding | `worker/soft1-client.js`, `worker/encoding.js` |
 

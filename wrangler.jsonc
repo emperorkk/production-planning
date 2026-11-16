@@ -33,7 +33,8 @@
   // Non-secret config.
   "vars": {
     "SOFT1_API_URL": "https://01104398142024.oncloud.gr/s1services",
-    "SOFT1_APP_ID":  "1199",
+    "SOFT1_APP_ID":  "1199",              // access 'full'       (Προγραμματισμός + Διαχείριση παραγωγής)
+    "SOFT1_APP_ID_PRODUCTION": "1200",   // access 'production' (Διαχείριση παραγωγής only)
     // Empty = fall back to the first company/branch returned by Soft1 /login
     "SOFT1_COMPANY": "",
     "SOFT1_BRANCH":  "",

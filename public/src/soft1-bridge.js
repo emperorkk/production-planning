@@ -62,7 +62,7 @@
   }
 
   // ─── Session cache (populated by /api/me on web boot) ────────────────────
-  var _webSession = { user: null, company: null, branch: null, expiresAt: null };
+  var _webSession = { user: null, company: null, branch: null, expiresAt: null, access: 'full' };
 
   // ─── Named dataset via /api/data → Foxline.planning/<name> ───────────────
   async function _webDataset(name, params) {
@@ -172,6 +172,7 @@
       _webSession.company = data.company;
       _webSession.branch  = data.branch;
       _webSession.expiresAt = data.expiresAt || null;
+      _webSession.access    = data.access === 'production' ? 'production' : 'full';
     } catch (_) { /* keep defaults */ }
   }
 
@@ -221,6 +222,22 @@
       if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
       return true;
     },
+
+    // Native Soft1 setData RSRC via /api/machine. fields: { SETUPTIME, WAITTIME, MPRDQTY, ISACTIVE, REMARKS }
+    machineSave: async function (key, fields) {
+      if (MODE === 'mock') { console.log('[MOCK MACHINE SAVE]', key, fields); return { RSRC: [Object.assign({ RSRC: key }, fields)] }; }
+      const res = await fetch('/api/machine', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ key: key, fields: fields })
+      });
+      if (res.status === 401) { window.location.replace('/login.html'); throw new Error('Session expired'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      return data.data || {};
+    },
+
+    // 'full' (planner + production app) | 'production' (production app only)
+    get access() { return MODE === 'web' ? _webSession.access : 'full'; },
 
     get expiresAt() { return MODE === 'web' ? _webSession.expiresAt : null; },
 

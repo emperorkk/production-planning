@@ -82,7 +82,6 @@
     els.shiftEnd        = document.getElementById('shift-end');
     els.btnShiftCancel  = document.getElementById('btn-shift-cancel');
     els.btnShiftSave    = document.getElementById('btn-shift-save');
-    els.btnLogout       = document.getElementById('btn-logout');
     els.btnUndo         = document.getElementById('btn-undo');
     els.btnRedo         = document.getElementById('btn-redo');
     els.btnToday        = document.getElementById('btn-today');
@@ -120,17 +119,15 @@
       onJump:   function (o) { _jumpToOrder(o); }
     });
 
-    _bindChangePassword();
-
-    // Logout button only exists in web mode
-    if (Soft1Bridge.isWeb && els.btnLogout) {
-      els.btnLogout.style.display = '';
-      els.btnLogout.title = 'Αποσύνδεση (' + (Soft1Bridge.user || '') + ')';
-      els.btnLogout.addEventListener('click', function () {
-        if (state.dirty && !confirm('Υπάρχουν μη αποθηκευμένες αλλαγές. Αποσύνδεση;')) return;
-        Soft1Bridge.logout();
-      });
-    }
+    // Shared shell (src/app-shell.js): app switcher · 🔑 change password · Έξοδος
+    var _leaving = false;
+    if (global.AppShell) AppShell.mount({
+      current: 'planner',
+      toolbar: document.getElementById('toolbar'),
+      confirmLeave: function () { return !state.dirty || confirm('Υπάρχουν μη αποθηκευμένες αλλαγές. Συνέχεια;'); },
+      onLeave: function () { _leaving = true; },
+      toast: function (m, t) { _toast(m, t); }
+    });
 
     _setWeek(_getWeekStart(new Date()));
 
@@ -147,7 +144,7 @@
     _startSessionWatch();
 
     window.addEventListener('beforeunload', function (e) {
-      if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
+      if (state.dirty && !_leaving) { e.preventDefault(); e.returnValue = ''; }
     });
   }
 
@@ -306,43 +303,6 @@
 
     // Yield to the browser, then continue
     setTimeout(function () { _loadUnscheduledPage(offset + UNSCHED_PAGE_SIZE, myToken); }, 0);
-  }
-
-  // ── Change password (native Soft1 changePassword) ───────────────────────
-  function _bindChangePassword() {
-    var btn = document.getElementById('btn-password');
-    var bd  = document.getElementById('pw-backdrop');
-    if (!btn || !bd || !Soft1Bridge.isWeb) return;
-    var f = { old: document.getElementById('pw-old'), nw: document.getElementById('pw-new'),
-              nw2: document.getElementById('pw-new2'), err: document.getElementById('pw-error'),
-              user: document.getElementById('pw-user'), save: document.getElementById('btn-pw-save') };
-    btn.style.display = '';
-    function open() {
-      f.old.value = f.nw.value = f.nw2.value = ''; f.err.textContent = '';
-      f.user.value = Soft1Bridge.user || '';
-      bd.classList.add('visible');
-      setTimeout(function () { f.old.focus(); }, 0);
-    }
-    function close() { bd.classList.remove('visible'); f.old.value = f.nw.value = f.nw2.value = ''; }
-    btn.addEventListener('click', open);
-    document.getElementById('btn-pw-cancel').addEventListener('click', close);
-    bd.addEventListener('click', function (e) { if (e.target === bd) close(); });
-    bd.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
-    document.getElementById('pw-form').addEventListener('submit', async function (e) {
-      e.preventDefault();
-      f.err.textContent = '';
-      if (!f.old.value || !f.nw.value) { f.err.textContent = 'Συμπληρώστε όλα τα πεδία'; return; }
-      if (f.nw.value !== f.nw2.value)  { f.err.textContent = 'Ο νέος κωδικός και η επιβεβαίωση δεν ταιριάζουν'; f.nw2.focus(); return; }
-      if (f.nw.value === f.old.value)  { f.err.textContent = 'Ο νέος κωδικός είναι ίδιος με τον τρέχοντα'; return; }
-      f.save.disabled = true;
-      try {
-        await Soft1Bridge.changePassword(f.old.value, f.nw.value);
-        close();
-        _toast('Ο κωδικός άλλαξε επιτυχώς', 'success');
-      } catch (ex) {
-        f.err.textContent = 'Αποτυχία: ' + (ex.message || ex);
-      } finally { f.save.disabled = false; }
-    });
   }
 
   // ── Production progress (CCCFXPRDOPRD) for the orders on this week's Gantt ──
