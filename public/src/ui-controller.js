@@ -971,12 +971,32 @@
   }
 
   // ── Auto-place (shift-aware, earliest delivery first, fastest finish) ──────
-  function _autoPlace() {
+  async function _autoPlace() {
     var candidates = _filteredUnscheduled();
     if (!candidates.length) { _toast('Δεν υπάρχουν μη προγραμματισμένες (με τα τρέχοντα φίλτρα)', 'warn'); return; }
     if (!confirm('Αυτόματη τοποθέτηση ' + candidates.length + ' παραγγελιών' +
                  (_filtersActive() || (els.orderSearch && els.orderSearch.value) ? ' (φιλτραρισμένες)' : '') +
-                 ' στις διαθέσιμες βάρδιες της εβδομάδας;\nΣειρά: νωρίτερη παράδοση πρώτα, μηχανή που τελειώνει νωρίτερα.')) return;
+                 ' στις διαθέσιμες βάρδιες της εβδομάδας;\nΣειρά: νωρίτερη παράδοση πρώτα, μηχανή που τελειώνει νωρίτερα.' +
+                 (state.calendarExists ? '' : '\n\nΗ εβδομάδα δεν έχει ημερολόγιο βαρδιών — θα δημιουργηθεί στο Soft1 από την προηγούμενη εβδομάδα.'))) return;
+
+    // No CCCFXPCAL week → create it from the last existing week first, then plan on its shifts
+    if (!state.calendarExists) {
+      _showLoading(true);
+      try {
+        var r = await DataService.calendar('create', { monday: _fmtDate(state.weekStart), copy: 'previous' });
+        if (r.success === false) throw new Error(r.error || 'Αποτυχία');
+        await _reloadShifts();
+        _toast('Δημιουργήθηκε η εβδομάδα ' + (r.code || '') + (r.copiedFrom ? ' από ' + r.copiedFrom : ''), 'success');
+      } catch (e) {
+        Soft1Bridge.warn('Δεν δημιουργήθηκε το ημερολόγιο της εβδομάδας — η αυτόματη τοποθέτηση ακυρώθηκε:\n' + (e.message || e));
+        return;
+      } finally { _showLoading(false); }
+      if (!state.calendarExists) {
+        Soft1Bridge.warn('Το ημερολόγιο δημιουργήθηκε αλλά δεν βρέθηκαν βάρδιες — ελέγξτε το στο Ημερολόγιο.');
+        return;
+      }
+    }
+
     var now = new Date();
     var minStart = now > state.weekStart ? now : state.weekStart;
     var weekEnd = new Date(state.weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
