@@ -1,378 +1,326 @@
 # HANDOVER — Production Planning (Vlachos Bros)
 
 > Read this first. It contains everything a new chat session needs to pick up where the previous one left off.
+> **Current version: v0.6.0** (live on `main`, last updated 2026-11-16). Short rules for agents are in `CLAUDE.md`.
 
 ---
 
 ## 1. What this project is
 
-A visual **production-scheduling planner** for Vlachos Bros, a factory running SoftOne ERP. The user is **Konstantinos (kkourentzes@gmail.com)**, aka GitHub `emperorkk`.
+A visual **production-scheduling planner** for Vlachos Bros (ΑΦΟΙ ΒΛΑΧΟΥ Α.Β.Ε.Ε., company 1000), a packaging factory running SoftOne ERP. The user is **Konstantinos (kkourentzes@gmail.com)**, GitHub `emperorkk`.
 
-The planner lets a shop-floor scheduler drag production orders onto a weekly Gantt grid of machines, respects shift calendars and phase-machine eligibility, computes block duration from machine speed + setup/wait times, and writes the plan back to Soft1. All UI is in **Greek**.
+A shop-floor scheduler drags production orders onto a weekly Gantt grid of machines. The planner respects the machines' shift calendar and phase-machine eligibility, computes block duration from machine speed + setup/wait **in working time**, checks the phase chain, shows production progress (rolls/lots) and writes the plan back to Soft1. It also edits the Soft1 production calendar (shifts). **All UI is in Greek; all dates are dd/mm/yyyy.**
 
-**Architecture (Worker-only since 2026-11-15):**
+### Architecture (Worker-only)
 
 ```
-browser ──/api/data {dataset, params}──▶ Worker ──/s1services/JS/Foxline.planning/<Get...>──▶ Soft1
-        ──/api/save {orders[]}────────▶        ──/s1services/JS/Foxline.planning/SaveSchedule─▶
+browser (public/*)                Cloudflare Worker (worker/*)                 Soft1 (oncloud)
+─────────────────                 ────────────────────────────                 ───────────────
+login.html ──/api/login──────────▶ login + authenticate (built-in services) ──▶ /s1services
+planner    ──/api/data {dataset}──▶ whitelist → /JS/Foxline.planning/<Get…> ──▶ custom AJS (all SQL)
+           ──/api/save {orders}──▶ shape check → …/SaveSchedule
+           ──/api/calendar {…}───▶ action whitelist → …/Get|Create|Save…CalendarWeek, FillMissingWeeks
+           ──/api/record {RSRC}──▶ native getData (OBJECT=RSRC, fixed LOCATEINFO)
+           ──/api/me, /api/version, /api/logout
 ```
 
-- Auth: Soft1 Web Accounts login (`login.html` → built-in `login` + `authenticate` services).
-- **All SQL lives in `soft1/Foxline.planning.js`** (Soft1 AJS web service). The browser never sends SQL.
-- `file://` open of `public/production-planner.html` = **mock mode** (demo data).
-
-> ⚠️ **Embedded mode (Soft1 `x=external` / `window.external` COM) is DEPRECATED.** Frozen in `legacy/embedded/` — **no further updates**. Do not port new features there.
+- **Live URL:** https://vbpp.onecode.win (Cloudflare Workers, account **ONECODE Support**, Worker `production-planning`).
+- **Deploy:** Cloudflare Workers Builds deploys **`main`** automatically (`bun install` → `npx wrangler deploy`). Merging to `main` = deploying.
+- **Soft1:** `https://01104398142024.oncloud.gr/s1services`, appId **1199**.
+- **All SQL lives in `soft1/Foxline.planning.js`** (Soft1 AJS web service). The browser never sends SQL. After changing that file the user must **paste it into the `Foxline.planning` script in Soft1** — Worker deploys don't touch it.
+- Opening `public/production-planner.html` / `calendar.html` as `file://` = **mock mode** (demo data, no Soft1).
+- ⚠️ **Embedded mode** (Soft1 `x=external` / `window.external` COM) is **DEPRECATED and frozen** in `legacy/embedded/` — no further updates.
 
 ---
 
-## 2. Repository
+## 2. Repository & workflow
 
-- **GitHub:** https://github.com/emperorkk/production-planning (the username is `emperorkk` — no separators; `emperor_kk` and `emperor-kk` both fail to resolve)
-- **Local clone:** `C:\Users\konst\production-planning\`
-- **Legacy embedded deploy target (deprecated):** `C:\SoftOne\Vlachos Bros\` (SoftOne install dir — do NOT `git init` there; it has hundreds of binaries)
-- **Git config:** user `kkourentzes@gmail.com`, Windows cert store (`http.sslBackend=schannel`) required for push
-- **Attribution footer on commits:** `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` (from the harness reminder)
+- **GitHub:** https://github.com/emperorkk/production-planning (username `emperorkk` — no separators).
+- **User's local clone:** `C:\Users\konst\production-planning\` (Windows; git needs `http.sslBackend=schannel`).
+- **Cloud (Claude Code) sessions:** work on the session's `claude/...` branch (so far `claude/charming-hamilton-9iqrpk`), commit + push there. **Merge to `main` only when the user says "merge"** — done as a fast-forward `git push origin HEAD:main` (check `git merge-base --is-ancestor origin/main HEAD` first). A push to `main` without an explicit "merge" gets blocked by the session's permission classifier.
+- **Every merge bumps `package.json` "version"** (patch = fix, minor = feature). The live site shows it (login page + toolbar via `/api/version`); state the new version when reporting a merge.
+- Commit attribution: use the lines from the harness reminder (do not hard-code a model name).
 
 ### Layout
 
 ```
-public/                           ← Worker's static assets root
-├── login.html                    ← Soft1 Web Account login form (web mode only)
+public/                           ← Worker static assets (all gated by session except login/src/icons)
+├── login.html                    ← Soft1 Web Account login (+ version label, icon)
 ├── production-planner.html       ← main app
 ├── calendar.html                 ← production calendar editor (CCCFXPCAL weeks)
+├── favicon.ico, icons/*, manifest.webmanifest   ← app icon (OpenAI-generated; source assets/icon-source-1024.png)
 └── src/
-    ├── soft1-bridge.js           ← web | mock; dataset(name, params) + saveSchedule(orders); ALL async
-    ├── data-service.js           ← dataset calls + row mapping + shift explode (NO SQL)
-    ├── work-time.js              ← shift-aware time math per machine (addWork / workBetween / utilisation)
-    ├── scheduler-engine.js       ← conflicts, deadlines, phase chain, smart auto-place
-    ├── info-card.js              ← floating Machine (native getData RSRC) + Order (GetOrderDetails + chain) cards
-    ├── print-view.js             ← shop-floor print (per machine, day, shift)
+    ├── date-fmt.js               ← DateFmt: dd/mm/yyyy display + parse + text-input binding (load first)
+    ├── soft1-bridge.js           ← web | mock: dataset(), saveSchedule(), calendar(), record(), session/expiresAt
+    ├── data-service.js           ← dataset calls + row mapping + shift explode + work minutes (NO SQL)
+    ├── work-time.js              ← WorkTime: per-machine working intervals (addWork/workBetween/utilisation)
+    ├── scheduler-engine.js       ← conflicts, deadlines, phase chain index/violations, smart autoPlace
+    ├── gantt-renderer.js         ← DOM Gantt: shift bands, blocks, badges, progress bar, heatmap, util rows
+    ├── drag-drop-manager.js      ← HTML5 DnD + resize; asks controller for computeSpan (shift-aware)
+    ├── ui-controller.js          ← state, loading pipeline, all event wiring, undo/draft/filters/calendar UI
+    ├── info-card.js              ← floating cards: machine (native getData RSRC), order (details+production+chain)
+    ├── print-view.js             ← shop-floor print (per machine → day → shift)
+    ├── excel-exporter.js         ← SheetJS export (3 sheets)
     ├── calendar.js / calendar.css← calendar page
-    ├── gantt-renderer.js         ← DOM-based Gantt (no framework, no SVG library)
-    ├── drag-drop-manager.js      ← HTML5 DnD + edge resize
-    ├── excel-exporter.js         ← SheetJS wrapper (3 sheets)
-    ├── ui-controller.js          ← top-level state, event wiring, lazy loading
-    ├── login.js                  ← login page handler (POSTs to /api/login)
+    ├── login.js, version.js      ← login handler; fills [data-app-version]
     ├── styles.css
     └── lib/xlsx.min.js           ← SheetJS bundled (no CDN)
 worker/
-├── index.js                      ← entry — routes /api/*, auth-gates static
-├── soft1-client.js               ← Soft1 Web Services HTTP client
-├── session.js                    ← KV-backed sessions (random id), HttpOnly cookie
+├── index.js                      ← routes, auth gate (public: /login.html, /favicon.ico, /manifest, /src/*, /icons/*)
+├── soft1-client.js               ← login/authenticate, callJS (AJS), getDataset, saveSchedule, getRecord (getData)
+├── encoding.js                   ← decodeSoft1(): UTF-8 if valid, else windows-1253 (own table)
+├── session.js                    ← KV sessions (random 256-bit id, 8 h TTL), HttpOnly cookie pp_sid
+├── version.js                    ← VERSION from package.json
 └── routes/
-    ├── auth.js                   ← /api/login, /api/logout, /api/me
-    ├── data.js                   ← /api/data (dataset whitelist), /api/save (structured orders + orig values)
-    ├── record.js                 ← /api/record (native getData, OBJECT whitelist: RSRC)
-    └── calendar.js               ← /api/calendar (get | weeks | create | save | fill → Foxline.planning)
-soft1/
-└── Foxline.planning.js           ← Soft1 AJS web service — ALL SQL (Get* datasets + SaveSchedule) — paste into Soft1
-legacy/embedded/                  ← DEPRECATED x=external planner — FROZEN, no further updates
-wrangler.jsonc                    ← Worker config (KV + env vars)
-package.json                      ← npm scripts: dev | deploy | tail | sync-embedded-legacy
-scripts/sync-to-softone.mjs       ← LEGACY: mirror legacy/embedded/ → C:\SoftOne\Vlachos Bros\
+    ├── auth.js                   ← /api/login, /api/logout, /api/me (+ expiresAt)
+    ├── data.js                   ← /api/data (DATASETS whitelist + params), /api/save (validOrder)
+    ├── record.js                 ← /api/record (RECORDS whitelist: RSRC + LOCATEINFO)
+    └── calendar.js               ← /api/calendar (ACTIONS: get | weeks | create | save | fill)
+soft1/Foxline.planning.js         ← Soft1 AJS web service — ALL SQL — paste into Soft1
+legacy/embedded/                  ← DEPRECATED x=external planner — FROZEN
+scripts/sync-to-softone.mjs       ← LEGACY: legacy/embedded → C:\SoftOne\Vlachos Bros\ (npm run sync-embedded-legacy)
+wrangler.jsonc                    ← account, assets (html_handling none, run_worker_first true), KV, vars
+package.json / package-lock.json  ← version + wrangler
+CLAUDE.md                         ← short agent rules
 README.md                         ← user-facing setup
 handover.md                       ← this file
 ```
 
+### wrangler.jsonc (current values)
+
+| Key | Value |
+|---|---|
+| `account_id` | `af6abc318e022147698714a45b9ba92e` (ONECODE Support) |
+| `assets` | `./public`, `html_handling: "none"`, `not_found_handling: "none"`, `run_worker_first: true` |
+| KV `SESSIONS` | `production-planning-SESSIONS` = `2bf8852d955c4bcbb1def4e4d3ccef37` |
+| `SOFT1_API_URL` | `https://01104398142024.oncloud.gr/s1services` |
+| `SOFT1_APP_ID` | `1199` (required — login throws if missing) |
+| `SOFT1_COMPANY` / `SOFT1_BRANCH` | empty → use the `objs[]` entry Soft1 returns at login |
+| `SOFT1_JS_SCRIPT` | `Foxline.planning` |
+
+No Worker secrets are needed (`SESSION_SECRET` is NOT used — sessions are random ids in KV).
+
 ---
 
-## 3. Data model — critical to understand before touching queries
+## 3. Data model — read before touching queries
 
-### Order-centric (no multi-phase per order!)
+### Order-centric
 
-Each row in Soft1 `FINDOC` with `SOSOURCE = 5171` is a **single production order = one production phase = one Gantt block**. There is no "parent order with 3 phases" — if a job needs Cut → Weld → Paint, those are **three independent FINDOCs** that share an `MTRL`. The `CCCFXPRNOMINAL` table defines the recipe/chain per MTRL (currently loaded but used only for future "combine runs" hints).
-
-### Core shape
+Each `FINDOC` with `SOSOURCE = 5171` = **one production order = one phase = one Gantt block**. A multi-step job (print → laminate → slit → bag) is several independent FINDOCs linked through the recipe `CCCFXPRNOMINAL`.
 
 ```js
 order = {
-  id:            String(FINDOC),
-  description:   'M.CODE + " " + M.NAME',
-  deliveryDate:  ISNULL(LS.DELIVDATE, L0.DELIVDATE),  // LS = parent sales order line
-  kilos:         L0.QTY1,
-  linearMetres:  L0.QTY2,
-  plannedStart:  L0.DATE01,   // null = unscheduled
-  plannedEnd:    L0.DATE02,
-  status:        D.MTRSTS,    // -1 created | 0 released | 1 completed (locked)
-  phase:         D.STAGE,     // FIXED — defines eligible machines
-  machineId:     F.CCCFXRSRC, // pre-assigned OR planner-set; nullable
-  mtrl:          L0.MTRL,
-  salesOrderRef: L0.FINDOCS
+  id: String(FINDOC), description: M.CODE + ' ' + M.NAME,
+  deliveryDate: ISNULL(LS.DELIVDATE, L0.DELIVDATE),   // LS = parent sales order line
+  kilos: L0.QTY1, linearMetres: L0.QTY2,
+  plannedStart: L0.DATE01, plannedEnd: L0.DATE02,      // null = unscheduled
+  status: D.MTRSTS,        // -1 created | 0 released | 1 completed (locked, never written)
+  phase: D.STAGE,          // defines eligible machines
+  machineId: F.CCCFXRSRC,  // pre-assigned (📌) or planner-set
+  mtrl: L0.MTRL, salesOrderRef: L0.FINDOCS,
+  // planner-only: _origMachineId/_origStart/_origEnd (as loaded), _workMin, _skipSetup,
+  //               _userOverridden, _prod {rolls, producedQty, firstLot, lastLot, …}
 }
 ```
 
-### Phase ↔ machine eligibility (many-to-many)
+Open orders: **1000–1500** at any time → staged loading (§6). Orders query (in `_ordersBaseSelect()` of the AJS) filters `ISNULL(LS.DELIVDATE,L0.DELIVDATE) >= GETDATE() - 180`.
 
-From `SPCOSTGROUP` — a machine may belong to several phases:
+### Machines & phases
+- Machines: `RSRC WHERE SODTYPE=25 AND RSRCTYPE<50` — `SETUPTIME`, `WAITTIME` (min), `MPRDQTY` (m/min), `CCCFXSTAGE` (home phase).
+- Eligibility (many-to-many): `SPCOSTGROUP (CCCRSRC, CCCSTAGE)`; phase name `(SELECT NAME FROM STAGE WHERE COMPANY=SPCOSTGROUP AND STAGE=CCCSTAGE)` — table-name-as-alias is Soft1 convention, not a typo. Always show `phaseName`, not the code.
+- Phases seen at Vlachos: 1001 Εκτύπωση, 2001 Λαμινάρισμα, 3001 Ρολοκοπή, 4001 Σακουλοποίηση.
+
+### Duration = working time
+`work minutes = SETUPTIME + linearMetres / MPRDQTY + WAITTIME` (rounded to 5', min 15'; setup skipped on combined runs). `WorkTime.addWork(machine, start, minutes)` consumes only time **inside that machine's shifts**: start snaps to the next shift, gaps are skipped, `overflow` = ran past the last known shift. Block width spans clock time (gaps included).
+
+### Production calendar (shifts) — OBJECT `CCCFXPCAL`
+Verified with a native getData of week 47:
+- **Header `CCCFXPCAL`**: key `CCCFXPCAL` = `CODE` = `NAME` = ISO week `'YYYYWW'` (e.g. 202647), `FROMDATE`/`FINALDATE`, `DATE01..DATE07` (Mon..Sun), `WK`, `COMPANY`.
+- **Lines `CCCFXPCALLNS`**: `CCCFXPCALLNS` (id), `CCCFXPCAL`, `LINENUM`, **`RSRC`** (on the lines, not the header), `S{day}{shift}` flags `S11..S73` (day 1=Mon..7=Sun, shift 1..3).
+- Shift times (constant `SHIFT_TIMES` in `data-service.js`): 1 = 06–14, 2 = 14–22, 3 = 22–24 + 00–06 next day (carry-over). Planned: per-row `STARTTIME/ENDTIME` on `CCCFXPCALLNS` → replace the constant then.
+- No calendar row for a machine/week = **machine unavailable**. Provisional shifts are browser-only (per session) unless converted «Σε Soft1».
+- Flags travel as a 21-char string `'S11 S12 S13 S21 … S73'` of 0/1 (`lines:[{rsrc, s}]`).
+
+### Production progress — `CCCFXPRDOPRD`
+One row = one produced **roll**: `FINDOC` (production order), `FINCODE` (ΚΠ…), `TRNDATE`, `MTRL`, `CODE`, `NAME`, `MTRLOT`, `QTY1`, `LOTCODE`, `ITEDOC`, `WHOUSE`. Progress % = Σ`QTY1` / order `QTY1` (assumes same unit, kg). Only the FINDOCs on the visible Gantt are requested.
+
+### Phase chain — `CCCFXPRNOMINAL`
+Lines `MTRL, LINENUM, RAW1MTRL..RAW4MTRL, PRDMTRL, STAGE, PRDQTY1, PRDQTY2`. `PRDMTRL` is produced from the RAWs. **Predecessor** of an order (mtrl X) = any order producing one of X's raws, with the same sales order when both are known. Violation = order starts before its predecessor ends.
+
+### Write-back (SaveSchedule, server-side SQL)
 ```sql
-SELECT CCCRSRC AS machine, CCCSTAGE AS phase,
-       (SELECT NAME FROM STAGE WHERE COMPANY=SPCOSTGROUP AND STAGE=CCCSTAGE) AS phaseName
-FROM SPCOSTGROUP WHERE CCCRSRC IS NOT NULL AND COMPANY = <company>
+UPDATE FINDOC   SET CCCFXRSRC = <int>|NULL WHERE FINDOC = <id>
+UPDATE MTRLINES SET DATE01 = DATEADD(MINUTE, n, 'YYYYMMDD')|NULL, DATE02 = … WHERE FINDOC = <id> AND MTRTYPE = 1
 ```
-
-State holds `phaseMachines[phase] = [machineId,...]` and `phaseNames[phase] = displayName`. **Always display phase as `phaseName` not the raw code.**
-
-### Machine duration formula
-
-Block duration on machine M = **`M.SETUPTIME + (order.linearMetres / M.MPRDQTY) + M.WAITTIME` minutes.** Same order on a faster machine = shorter block. Computed live during dragover so the ghost resizes mid-drag.
-
-```sql
-SELECT RSRC AS id, NAME AS name, CCCFXSTAGE AS phase,
-       SETUPTIME AS setuptime, WAITTIME AS waittime,
-       MPRDQTY AS average_speed_in_metres_per_minute
-FROM RSRC WHERE SODTYPE = 25 AND RSRCTYPE < 50 AND COMPANY = <company>
-```
-
-### Shifts — per machine, per day (NOT per machine group)
-
-From `CCCFXPCAL` (header: week dates) + `CCCFXPCALLNS` (line: 21 boolean flags `S{day}{shift}` for 7 days × 3 shifts). **RSRC is on the LINES table (`L.RSRC`), not on the header.** Each row explodes into up to 21 shift records; shift 3 (22:00–24:00) also emits a carry-over 00:00–06:00 for the next day.
-
-Default shift times (hardcoded in `data-service.js SHIFT_TIMES`):
-- Shift 1 (Πρωινή): 06:00–14:00
-- Shift 2 (Απογευματινή): 14:00–22:00
-- Shift 3 (Νυχτερινή): 22:00–24:00 (+ 00:00–06:00 next day)
-
-**Future:** user plans to add `STARTTIME`/`ENDTIME` columns on `CCCFXPCALLNS`. When that happens, replace the `SHIFT_TIMES` constant with per-row lookups — everything else stays.
-
-If a machine has NO shift programme row for a week, it's **fully unavailable** (per user decision). Planner can add "provisional shifts" that live only in browser state — not written to Soft1 — and render with dashed orange borders + diagonal stripes.
-
-### Production orders query (current working version)
-
-```sql
-SELECT F.FINDOC AS id, M.CODE + ' ' + M.NAME AS description,
-       ISNULL(LS.DELIVDATE, L0.DELIVDATE) AS deliveryDate,
-       L0.QTY1 AS kilos, L0.QTY2 AS linearMetres,
-       L0.DATE01 AS plannedStartDataTime, L0.DATE02 AS plannedFinishDataTime,
-       D.MTRSTS AS status, D.STAGE AS phase, F.CCCFXRSRC AS machine,
-       L0.FINDOCS AS salesOrderRef, L0.MTRL AS mtrl
-FROM FINDOC F
-  INNER JOIN MTRDOC   D  ON D.FINDOC = F.FINDOC
-  INNER JOIN MTRLINES L0 ON L0.FINDOC = F.FINDOC AND L0.MTRTYPE = 1
-  LEFT  JOIN MTRLINES LS ON LS.FINDOC = L0.FINDOCS AND LS.MTRLINES = L0.MTRLINESS
-  INNER JOIN MTRL     M  ON M.MTRL = L0.MTRL
-WHERE F.SOSOURCE = 5171
-  AND F.COMPANY = <company>
-  AND ISNULL(LS.DELIVDATE, L0.DELIVDATE) >= GETDATE() - 180        -- 6-month floor
-  AND (D.MTRSTS <> 1                                                -- non-completed
-       OR L0.DATE01 BETWEEN '<weekStart> 00:00:00' AND '<weekEnd> 23:59:59'
-       OR L0.DATE02 BETWEEN '<weekStart> 00:00:00' AND '<weekEnd> 23:59:59')
-ORDER BY L0.DELIVDATE
-```
-
-At any time there are **1000–1500 open orders** → the UI loads in stages (see §6 "Performance").
-
-### Write-back — two UPDATEs per changed order
-
-```sql
-UPDATE FINDOC   SET CCCFXRSRC = '<machineId>'|NULL             WHERE FINDOC = <id>
-UPDATE MTRLINES SET DATE01 = '<start>'|NULL, DATE02 = '<end>'|NULL  WHERE FINDOC = <id> AND MTRTYPE = 1
-```
-
-**Completed orders (`status = 1`) are never written back** — the planner shows them as grey, immovable, lock-iconed blocks for context only.
+Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload carries `origMachine/origStart/origEnd`; if the DB differs → not written, reported as conflict (order stays dirty).
 
 ---
 
-## 4. Current status (as of 2026-11-15)
+## 4. Soft1 AJS web service `Foxline.planning` (soft1/Foxline.planning.js)
 
-### Done
-- ✅ Order-centric refactor (no more separate blocks / phases arrays)
-- ✅ Real Soft1 queries wired in (machines, phases, orders, shifts, mtrl tree)
-- ✅ Phase names via `STAGE` subquery in `SPCOSTGROUP` SELECT
-- ✅ Phase-machine many-to-many eligibility
-- ✅ Per-machine (not per-group) shifts, 7-day week, up to 3 shifts/day
-- ✅ Provisional shifts (planner-local, not saved to Soft1): click no-shift band → modal, right-click shift band → remove
-- ✅ Locked completed orders (status=1) with grey/lock-icon styling
-- ✅ Pre-assigned pin (📌) for orders with CCCFXRSRC already set in DB
-- ✅ Reassigned dashed-orange border when planner moves from original
-- ✅ Dynamic duration = setup + (metres/speed) + wait, recomputed per target machine during dragover
-- ✅ Conflict detection + rejection on drop (prevents overlaps that were causing stuck blocks)
-- ✅ Issue panel with per-issue ✕ remove button (rescues stuck blocks)
-- ✅ Deadline-violation marker (red triangle on blocks running past `deliveryDate`)
-- ✅ Excel export (3 sheets: Schedule, Utilisation, Orders)
-- ✅ Lazy load: metadata parallel, then week-orders, then unscheduled pages of 300
-- ✅ 1970-epoch date filtering (null-DB values appeared as 01/01/1970)
-- ✅ Out-of-week orders no longer render at the Gantt edge; also hidden from unscheduled panel
-- ✅ O(1) lookup maps `orderById` / `machineById` for the 1000+ scale
-- ✅ Light theme enforced (`color-scheme: light` + explicit colors) — Soft1 sometimes injects dark CSS
-- ✅ **Cloudflare Worker scaffold** (wrangler.jsonc, worker/index.js, routes, Soft1 client, KV sessions)
-- ✅ **Login page** (`public/login.html` + `src/login.js`) — Soft1 Web Accounts flow
-- ✅ **Worker-only** — embedded mode deprecated & frozen in `legacy/embedded/`; bridge is web | mock
-- ✅ **App icon** (OpenAI-generated, source `assets/icon-source-1024.png`) → `public/favicon.ico`, `public/icons/*`, `public/manifest.webmanifest`
-- ✅ **Machine info card** — click a machine name → native Soft1 `getData` (`OBJECT=RSRC`, `KEY=<RSRC id>`, fixed `LOCATEINFO` in `worker/routes/record.js`) via `/api/record` → floating card (`public/src/info-card.js`) + eligible phases from planner state
-- ✅ **v0.5.0 — production progress** from `CCCFXPRDOPRD` (1 row = 1 produced roll; `QTY1`, `LOTCODE`): `GetProduction` is called only for the orders on the visible week's Gantt (chunks of 500, refresh every 5'), block shows progress bar (produced / order QTY1) + roll count; order card lists the rolls/lots (`GetProductionRolls`, on demand)
-- ✅ **v0.4.0 — calendar + planning features**
-  - **Production calendar (CCCFXPCAL)** via custom AJS (`GetCalendarWeek`, `GetCalendarWeeks`, `CreateCalendarWeek`, `SaveCalendarWeek`, `FillMissingWeeks`): planner banner when the week is missing (create from previous / empty), click a no-shift gap → modal (Soft1 shift 1/2/3 or provisional), right-click a real shift → remove from Soft1, provisional → «Σε Soft1» conversion, and `calendar.html` grid editor (row/column toggles, copy, fill range)
-  - **Shift-aware durations** (`work-time.js`): duration = working minutes; start snaps to next shift, gaps skipped; ghost turns red when it runs past the week's shifts
-  - **Magnet + combined runs**: drop within 30' of the previous block snaps to its end; same item right after → no setup (♻ badge, ghost green); context menu «Με / χωρίς setup»
-  - **Phase chain** from CCCFXPRNOMINAL (predecessor = order producing one of my raws, same sales order): ⇅ badge + issue when a phase starts before its predecessor ends; chain shown in the order card
-  - **Smart auto-place**: if the week has no CCCFXPCAL calendar it first creates it from the last existing week (`CreateCalendarWeek copy=previous`, mentioned in the confirm), then plans; works on the filtered list; predecessors first, then earliest delivery; machine that finishes earliest; respects shifts, now, predecessors, overlaps
-  - **Save conflict check**: `SaveSchedule` receives `origMachine/origStart/origEnd`; if the DB changed since load the order is not written (stays dirty, message per order)
-  - **Order info card** (click block/card) — `GetOrderDetails`: fincode, item, customer, sales order, PO, delivery, qty, status
-  - **QoL**: undo/redo (Ctrl+Z/Y, 50 steps), draft autosave to localStorage per user+week (restore prompt after load), Σήμερα / date picker / ←→ keys / Ctrl+S, unscheduled filters (phase, delivery range, late, pre-assigned) + sort + count, search Enter → jump & highlight on Gantt, session-expiry banner (≤10') with re-login keeping the draft, print view, per-machine daily load heatmap strip
-- ✅ **Version label** on login + toolbar (`/api/version` ← `package.json`)
-- ✅ **AJS web service `soft1/Foxline.planning.js`** — named datasets (SQL moved out of the browser) + batched `SaveSchedule`
-- ✅ **GitHub repo** initial commit pushed to https://github.com/emperorkk/production-planning
+`POST https://01104398142024.oncloud.gr/s1services/JS/Foxline.planning/<fn>` with body `{ clientID, ...params }`.
 
-### Pending (needs user action before Worker can go live)
-1. ~~**Fill `wrangler.jsonc`:**~~ DONE — `SOFT1_API_URL = https://01104398142024.oncloud.gr/s1services`; `SOFT1_COMPANY`/`SOFT1_BRANCH` left empty on purpose → falls back to first company/branch returned by `/login`; `account_id` set to **ONECODE Support** (`af6abc318e022147698714a45b9ba92e`)
-2. ~~**Create KV namespace**~~ DONE — `production-planning-SESSIONS` (`2bf8852d955c4bcbb1def4e4d3ccef37`) on ONECODE Support
-3. **Deploy the Soft1 AJS web service `Foxline.planning`** — source in `soft1/Foxline.planning.js`. Reached at `https://01104398142024.oncloud.gr/s1services/JS/Foxline.planning/<fn>` with body `{ clientID, ...params }`:
+| Function | Params | Returns |
+|---|---|---|
+| `Ping` | — | `{ success, user, company }` |
+| `GetMachines` | — | `{ success, count, data:[rows] }` |
+| `GetPhaseMachines` | — | 〃 |
+| `GetOrdersInWeek` | `weekStart`, `weekEnd` (YYYY-MM-DD) | 〃 |
+| `GetUnscheduledOrders` | `offset`, `pageSize` (≤2000, default 1000) | 〃 |
+| `GetProductionOrders` | `weekStart`, `weekEnd` | 〃 (full load, fallback) |
+| `GetShifts` | `monday` | 〃 (CCCFXPCAL + lines for that week) |
+| `GetMtrlTree` | — | 〃 |
+| `GetOrderDetails` | `findoc` | 〃 (fincode, item, customer, sales order, PO, delivery, qty, status, machine, remarks) |
+| `GetProduction` | `findocs` ('1,2,3', ≤1000) | per order `{id, rolls, producedQty, firstDate, lastDate, firstLot, lastLot}` |
+| `GetProductionRolls` | `findoc` | every roll `{fincode, trndate, qty, lot, mtrlot, whouse}` |
+| `SaveSchedule` | `orders:[{findoc, machine, start, end, origMachine, origStart, origEnd}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, conflicts, errors[] }` |
+| `GetCalendarWeek` | `monday` | `{ success, exists, header{id,code,wk}, data:[machine rows + S11..S73 + lineId] }` (all active machines, left-joined) |
+| `GetCalendarWeeks` | `from`, `to` | `{ success, data:[{id, code, wk, monday}] }` |
+| `CreateCalendarWeek` | `monday`, `copy` ('previous'\|'none') | `{ success, id, code, copiedFrom }` |
+| `SaveCalendarWeek` | `monday`, `lines:[{rsrc, s:'21×0/1'}]` | `{ success, updated, inserted, errors[] }` |
+| `FillMissingWeeks` | `from`, `to` (Mondays, ≤26 weeks) | `{ success, created[], skipped[], errors[] }` |
 
-   | Function | Params | Returns |
-   |---|---|---|
-   | `Ping` | — | `{ success, user, company }` |
-   | `GetMachines` | — | `{ success, count, data:[rows] }` |
-   | `GetPhaseMachines` | — | 〃 |
-   | `GetOrdersInWeek` | `weekStart`, `weekEnd` (YYYY-MM-DD) | 〃 |
-   | `GetUnscheduledOrders` | `offset`, `pageSize` (≤2000, default 1000) | 〃 |
-   | `GetProductionOrders` | `weekStart`, `weekEnd` | 〃 |
-   | `GetShifts` | `monday` (YYYY-MM-DD) | 〃 |
-   | `GetMtrlTree` | — | 〃 |
-   | `GetOrderDetails` | `findoc` | 〃 (1 row) |
-   | `GetProduction` | `findocs` ('1,2,3', ≤1000) | per order: `{id, rolls, producedQty, firstDate, lastDate, firstLot, lastLot}` |
-   | `GetProductionRolls` | `findoc` | every roll: `{fincode, trndate, qty, lot, mtrlot, whouse}` |
-   | `SaveSchedule` | `orders:[{findoc, machine\|null, start\|null, end\|null, origMachine, origStart, origEnd}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, conflicts, errors[] }` |
-   | `GetCalendarWeek` | `monday` | `{ success, exists, header{id,code,wk}, data:[machine rows + S11..S73] }` |
-   | `GetCalendarWeeks` | `from`, `to` | `{ success, data:[{id, code, wk, monday}] }` |
-   | `CreateCalendarWeek` | `monday`, `copy` ('previous'\|'none') | `{ success, id, code, copiedFrom }` |
-   | `SaveCalendarWeek` | `monday`, `lines:[{rsrc, s:'21×0/1'}]` | `{ success, updated, inserted, errors[] }` |
-   | `FillMissingWeeks` | `from`, `to` (Mondays, ≤26 weeks) | `{ success, created[], skipped[], errors[] }` |
+Implementation notes:
+- **ES3 only** (Soft1 JS engine): no `JSON.parse`, arrow functions, `Array.isArray`; dataset → rows via `eval(ds.JSON)`; iterate datasets with `ds.FIRST; while(!ds.EOF){…; ds.NEXT;}`; field by name `ds[name]`.
+- Company always `X.SYS.COMPANY`; every param validated (ISO dates, Mondays, ints, id lists) before it enters SQL.
+- Soft1 treats `:x` inside SQL as a parameter marker → `sqlRows()` rewrites colons inside string literals as `'+CHAR(58)+'`; writes avoid colons entirely (`DATEADD(MINUTE, n, 'YYYYMMDD')`).
+- `CreateCalendarWeek`: `X.CREATEOBJ('CCCFXPCAL')` → `DBINSERT` → header (key set only if the column is not IDENTITY — checked with `COLUMNPROPERTY`) → `APPEND` a line per active machine (flags copied from the latest earlier week, or zeros) → `DBPOST`, then dates/WK pinned with an SQL UPDATE. `SaveCalendarWeek`: existing lines → SQL UPDATE of changed flags; machines without a line → added through the object.
+- The built-in `SqlData` service is NOT used (it only runs stored SQL by name).
 
-   - Company always from `X.SYS.COMPANY`; params validated (ISO dates / ints) before going into SQL.
-   - Colons inside SQL string literals are rewritten as `'+CHAR(58)+'` (Soft1 treats `:x` as a param marker).
-   - `SaveSchedule` builds both UPDATEs server-side (dates via `DATEADD(MINUTE, n, 'YYYYMMDD')`), skips `MTRSTS=1`, checks `SOSOURCE=5171` + company.
-   - The built-in `SqlData` service is NOT used (it only runs stored SQL by name).
-4. ~~**appId**~~ DONE — `SOFT1_APP_ID = 1199` in `wrangler.jsonc` vars
-5. **Test the login flow end-to-end** — the exact field names returned by `/login` / `/authenticate` may vary per Soft1 version. The client in `worker/soft1-client.js` assumes the standard shape; adjust if needed.
+---
+
+## 5. Version history
+
+| Version | What |
+|---|---|
+| 0.1.0 | Worker scaffold, Soft1 login, embedded + web modes (initial) |
+| — | Config: Soft1 URL, ONECODE account, KV, appId 1199; AJS `Foxline.planning` named datasets (SQL out of the browser); embedded deprecated → `legacy/embedded/`; redirect-loop fix + auth gate on all pages; authenticate with REFID/MODULE from login `objs` |
+| 0.2.0 | Version label (`/api/version`), app icon/favicon/manifest, faster open-orders load (pages of 1000), Soft1 timing (`Server-Timing`), windows-1253 decoding |
+| 0.3.0 | Machine info card (native `getData` RSRC) |
+| 0.4.0 | Production calendar (AJS + planner banner + Soft1 shift add/remove + provisional→Soft1 + `calendar.html`), shift-aware durations, magnet/combined runs, phase chain, smart auto-place, save conflict check, order card, undo/redo, draft autosave, navigation (Σήμερα, picker, ←/→, Ctrl+S), filters/sort/count, search-jump, session-expiry banner, print view, load heatmap |
+| 0.5.0 | Production progress from `CCCFXPRDOPRD` (block progress bar + rolls, order card lots) |
+| 0.5.1 | European dates `dd/mm/yyyy` everywhere (`date-fmt.js`, text date inputs) |
+| 0.6.0 | Auto-place creates the missing calendar week from the previous one before planning |
+
+### Status
+- ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
+- ✅ AJS deployed by the user (at least the dataset version). **The user must paste the latest `soft1/Foxline.planning.js` (v0.5.0 content, unchanged since)** for calendar, order card and production functions.
+- ⚠️ **Not yet verified on real Soft1:** `CreateCalendarWeek` / `SaveCalendarWeek` / `FillMissingWeeks` (object insert + date pin — check a created week opens normally in Soft1), `GetOrderDetails` columns (`F.REMARKS`, `S.VARCHAR01`), `RSRC` LOCATEINFO fields in `worker/routes/record.js`, whether `ds.JSON` keeps alias case and its datetime format.
 
 ### Known limitations / future work
-- **Date math in queries** uses `GETDATE()` (MSSQL) directly in `Foxline.planning.js`.
-- **`CCCFXPCALLNS`** currently doesn't have `STARTTIME`/`ENDTIME` columns — user plans to add them. When that happens, replace `SHIFT_TIMES` constant with per-row values.
-- **Phase names** come from a subquery `(SELECT NAME FROM STAGE WHERE COMPANY=SPCOSTGROUP AND STAGE=CCCSTAGE)` — note the join against `SPCOSTGROUP` (table name used as implicit column alias). If results are wrong, verify this subquery against real schema.
-- **Multi-phase "combine runs" hint** (same `PRDMTRL` can skip setup): `state.mtrlTree` is loaded from `CCCFXPRNOMINAL` but not yet consumed by any logic.
-- **No audit trail / undo stack** — save is a one-shot write; previous plan is lost.
-- **No real-time collaboration** — two planners editing the same week will overwrite each other.
-- **Excel export** has no styling (just raw sheets + column widths).
+- **Audit log:** the user already has one — integrate with `SaveSchedule` once access is provided.
+- No real-time collaboration (conflict check prevents silent overwrites only).
+- Provisional shifts live only in the browser session.
+- Shift times are constants until `STARTTIME/ENDTIME` columns exist.
+- Excel export is unstyled; print view is HTML (browser print).
+- Unscheduled panel renders max 500 cards (filter/search to narrow); no virtual scrolling.
+- If loading is still slow: the `ISNULL(LS.DELIVDATE,L0.DELIVDATE) >= GETDATE()-180` filter is non-sargable.
 
 ---
 
-## 5. How to work with it
+## 6. Features & UX (what the user sees)
 
-### Local Worker dev
-```bash
-cd C:\Users\konst\production-planning
-npm install
-npm run dev       # wrangler dev — opens on http://localhost:8787
-```
+**Planner (`production-planner.html`)**
+- Toolbar: ← week label (click = date picker) → · Σήμερα · ↶ ↷ undo/redo · zoom − + · ⚙ Αυτόματο · provisional pill + «Σε Soft1» · 📅 calendar · 🖨 print · Excel · Αποθήκευση · Έξοδος. Keys: ←/→ week, Ctrl+Z/Ctrl+Y, Ctrl+S.
+- Banners: unsaved changes; **missing calendar week** (create from previous / empty / open calendar); **session expires ≤10'** (re-login keeps the draft).
+- Unscheduled panel: count badge, search (Enter = jump to block on Gantt + highlight), ⚙ filters (phase, delivery from/to dd/mm/yyyy, late only, pre-assigned only, sort). Click a card = order card; drag = schedule.
+- Drag & drop: ghost shows the shift-aware span (green = combined run without setup, red = past the week's shifts); ineligible machine → refused; overlap → refused with toast naming the collider; magnet to previous block within 30'.
+- Blocks: 🔒 completed, 📌 pre-assigned, dashed orange = reassigned, red outline = past delivery, ♻ combined run, ⇅ phase-chain violation, white/green progress bar + `N◯` rolls (production), tooltip with breakdown + working hours + production + lots. Click = order card; right-click = Details / Αλλαγή διάρκειας (working hours) / Με-χωρίς setup / Αφαίρεση.
+- Order card: schedule + «Μετάβαση», Soft1 details (customer, sales order, PO…), **production (total, %, every roll/lot)**, phase chain (red when out of order).
+- Machine name click = machine card (Soft1 RSRC via native getData + eligible phases).
+- Shift bands: click a gap → modal (**Soft1 shift 1/2/3** saved immediately, or provisional with times); right-click real shift → remove from Soft1; right-click provisional → remove.
+- Row bottom strip = daily load heatmap (green → amber → red, tooltip h/h); group «Χρησιμ.» row = max utilisation per day.
+- Issue panel: overlaps, deadline violations, phase-chain violations; click = jump, ✕ = unschedule.
+- Auto-place: on the **filtered** list; creates the calendar week first if missing; predecessors first, then earliest delivery; picks the machine that finishes earliest; respects shifts, now, predecessors, overlaps; undoable.
+- Save: one batched call; per-order failures/conflicts stay dirty with a message; success clears the draft + history.
+- Draft: autosaved to `localStorage` (`pp-draft:<user>:<monday>`); after load you're asked to restore.
+- Production progress refreshes every 5'.
 
-### Deploy Worker
-```bash
-npm run deploy    # wrangler deploy
-npm run tail      # live logs
-```
-
-### Update the Soft1 AJS service
-After editing `soft1/Foxline.planning.js`, paste it into the `Foxline.planning` script in Soft1. (Worker deploys don't touch it.)
-
-### Legacy embedded (DEPRECATED — frozen, no further updates)
-```bash
-npm run sync-embedded-legacy   # copies legacy/embedded/* → C:\SoftOne\Vlachos Bros\
-```
-
-### Git
-```bash
-git push origin main      # schannel SSL required: git config --global http.sslBackend schannel
-```
+**Calendar (`calendar.html?week=YYYY-MM-DD`)**: machines × 7 days × 3 shifts; click cell / machine name (row) / day or shift header (column) to toggle; changed cells outlined; hours per machine; create week (from previous / empty); «Συμπλήρωση» fills missing weeks up to a date (≤26); Αποθήκευση στο Soft1 (Ctrl+S); ←/→ weeks.
 
 ---
 
-## 6. Performance decisions (for the 1000–1500 order scale)
+## 7. Performance (1000–1500 open orders)
 
-- **Lazy load pipeline** in `ui-controller.js _loadData()`:
-  1. Metadata (machines, phase-map, shifts) in parallel — `Promise.all`
-  2. Week orders (small, fast)
-  3. Unscheduled paged in batches of **1000** (DATE01 IS NULL) via `_loadUnscheduledPage(offset)`; stops on a short page. (Was 300 → 6 sequential round trips, each re-sorting with OFFSET — user reported it as extremely slow.)
-  4. MTRL tree loaded in background (not awaited)
-- **Cancellation token** `_loadToken` — incremented on every week change so in-flight loaders abort cleanly
-- **O(1) lookups** `state.orderById` / `state.machineById` built once per load — replaces O(n) `.find()` in hot paths
-- **DocumentFragment** for the unscheduled panel; **500-row cap** with "X more — filter to find" hint
-- **Timing:** Worker logs `dataset <name>: N rows, soft1 X ms` (`npm run tail`) and sends `Server-Timing: soft1;dur=X` (DevTools → Network → Timing) — use it to see if slowness is Soft1/SQL or transfer
-- **Next if still slow:** the `isnull(LS.DELIVDATE,L0.DELIVDATE) >= GETDATE()-180` filter is non-sargable; consider an index-friendly rewrite or a single unpaged call
-- **Virtualisation NOT implemented** — relies on the cap + search instead; may need actual virtual scrolling if cap feels too aggressive
+- Load pipeline (`_loadData`): machines + phase map + shifts in parallel → render skeleton → week orders → production for the week (background) → unscheduled in pages of **1000** (stop on short page) → MTRL tree (background) → `_onLoadComplete` (chain, render, draft offer). `_loadToken` cancels stale loads on week change.
+- O(1) maps `orderById` / `machineById`; DocumentFragment + 500-card cap in the panel.
+- Worker logs `dataset <name>: N rows, soft1 X ms` (`npm run tail`) and returns `Server-Timing: soft1;dur=X`.
 
 ---
 
-## 7. UX decisions worth preserving
+## 8. Known gotchas (things that bit us)
 
-- **Drag an order onto an ineligible machine** → ghost shows `drop-blocked`, drop is refused silently
-- **Drop causing overlap on same machine** → refused with toast naming the collider: *"Επικάλυψη με 359123 (10:00–14:30) — ακυρώθηκε"*
-- **Issue panel ✕ button** → clears that order's machine/start/end (recovery for stuck blocks hidden under others)
-- **Context menu** on a scheduled block: Details, Edit duration (working hours), With/without setup, Remove from schedule
-- **Click** a block / unscheduled card → order card; click a machine name → machine card
-- **Block duration = working minutes inside shifts**; the block's width spans the clock time (gaps included)
-- **Right-click a provisional shift band** → confirm then delete
-- **Toolbar pill** `⚠ N προσ. βάρδιες` when provisional shifts active; click to clear all
-- **Mock-mode banner** appears when running outside Soft1 with no HTTP (file://)
-- **Save button disabled** unless `state.dirty` — becomes enabled on first change
-- **Beforeunload guard** prompts if dirty
-
----
-
-## 8. Known gotchas (things that bit us previously)
-
-0. **CCCFXPCAL** (verified with a native getData of week 47): header key `CCCFXPCAL` = `CODE` = `NAME` = ISO `'YYYYWW'` (e.g. 202647), `FROMDATE`/`FINALDATE`, `DATE01..07`, `WK`; lines `CCCFXPCALLNS` (`RSRC`, `LINENUM`, `S11..S73`). `CreateCalendarWeek` creates through `X.CREATEOBJ('CCCFXPCAL')`, sets the key only if the column is not IDENTITY (checked via `COLUMNPROPERTY`), then pins dates with SQL. **First real run: verify a created week opens normally in Soft1.**
-
-1. **GitHub username has no separator**: `emperorkk` — NOT `emperor_kk` (invalid, no underscores on GitHub) and NOT `emperor-kk`.
-2. **Git on Windows needs `schannel`** SSL backend or push fails with cert errors.
-3. **Can't `git init` in `C:\SoftOne\Vlachos Bros\`** — it's the SoftOne install directory with hundreds of DLLs/EXEs.
-4. **Shift query: `L.RSRC` not `A.RSRC`** — RSRC is on the LINES table (`CCCFXPCALLNS`), not the header. User caught this mid-refactor.
-5. **Soft1 returns null dates as 01/01/1970** (unix epoch). `_parseDate` rejects anything with `getFullYear() < 1990`.
-6. **Orders scheduled in OTHER weeks** must be filtered out of both the Gantt (would clamp to edge) and the unscheduled panel (would wrongly re-offer them). Done in both places.
-7. **The `SPCOSTGROUP` subquery for phaseName** uses `WHERE COMPANY=SPCOSTGROUP` — this is Soft1 convention using table name as alias; it's not a typo.
-8. **Bridge is async** — if you see a non-awaited `Soft1Bridge.dataset()` / `saveSchedule()` call, that's a bug.
-9. **Embedded is frozen** — `legacy/embedded/` must not receive new features or fixes. Everything goes to `public/` + `worker/` + `soft1/`.
-10. **New dataset = 3 places**: function in `soft1/Foxline.planning.js` + entry (name → allowed params) in `DATASETS` in `worker/routes/data.js` + caller in `data-service.js`. Unlisted names/params are rejected by the Worker.
-11. **Soft1 responses can be windows-1253** (Greek showed as �). `worker/encoding.js decodeSoft1()` decodes strict UTF-8 if valid, else cp1253 (own table). All Soft1 responses go through it in `soft1-client.js` — never use `res.text()` there.
-11b. **AJS = ES3** — no `JSON.parse`, arrow functions or `Array.isArray`; use `eval(ds.JSON)` for dataset → rows (as in `Production.scale`).
-12. **Unverified:** whether `ds.JSON` keeps column-alias case (`plannedStartDataTime`, `average_speed_in_metres_per_minute`) and its datetime string format. Check the first `GetMachines` / `GetOrdersInWeek` response.
+1. **Redirect loop on /login.html** — Cloudflare assets' default `html_handling` redirected `/login.html → /login` and the Worker redirected back. Fixed with `html_handling: "none"`; `run_worker_first: true` so the Worker gates every page.
+2. **Login needs appId** (`SOFT1_APP_ID = 1199`) and **authenticate must use `REFID`/`MODULE`/`BRANCH` from the login `objs[]`** entry (not 0). Errors are prefixed `Soft1 login:` / `Soft1 authenticate (…)`.
+3. **Greek showed as �** — Soft1 answers in windows-1253. `worker/encoding.js decodeSoft1()` (strict UTF-8, else cp1253). Never use `res.text()` in `soft1-client.js`.
+4. **Soft1 `:` = parameter marker** inside SQL text → colon escaping / DATEADD (see §4).
+5. **AJS = ES3** (see §4).
+6. **Null dates come back as 1899/1900/1970** → `_parseDate` rejects `< 1990`; SaveSchedule conflict check does the same.
+7. **Orders scheduled in other weeks** are filtered out of both Gantt and unscheduled panel.
+8. **Shift query: `L.RSRC`, not `A.RSRC`.**
+9. **New dataset = 3 places:** AJS function + `DATASETS` in `worker/routes/data.js` + caller in `data-service.js`. Calendar actions: `ACTIONS` in `worker/routes/calendar.js`. Native records: `RECORDS` in `worker/routes/record.js`.
+10. **Bridge is async** — a non-awaited `Soft1Bridge.*` call is a bug.
+11. **`.btn { display:… }` overrode `[hidden]`** → global `[hidden]{display:none!important}`.
+12. **Dates:** never `toLocaleDateString` or visible `<input type="date">` (shows mm/dd/yyyy on English browsers) — use `DateFmt` + text inputs. Internally Date / ISO `YYYY-MM-DD`.
+13. **Deploys come from `main` only** — changes on the `claude/…` branch are not live until merged.
+14. **GitHub user `emperorkk`**; Windows git needs `schannel`; never `git init` in `C:\SoftOne\Vlachos Bros\`.
+15. **Do not use the `noma` Soft1 MCP connector** — it is a different Soft1 installation (its RSRC field list was used once for `record.js`; standard fields, unverified at Vlachos).
 
 ---
 
-## 9. User preferences learned
+## 9. User preferences
 
-- **Do NOT use the `noma` Soft1 MCP connector for Vlachos Bros** — different installation. Ask the user for schema/field info instead. (The `RSRC` LOCATEINFO in `worker/routes/record.js` uses standard Soft1 RSRC fields; if any is missing at Vlachos Bros, `getData` errors — adjust there.)
-
-- **ALWAYS bump `package.json` "version" on every merge to main** (patch = fix, minor = feature). It's shown on the live site (login page + planner toolbar, via `/api/version`) so the user can tell which build is deployed. Mention the new version when reporting the merge.
-
-- **Terse responses** — short status, no trailing summaries unless asked
-- **Ask before major refactors** — the user says "Provide feedback before moving on to making any changes" when a design question is on the table; honour that pattern
-- **User edits SQL queries manually** (now in `soft1/Foxline.planning.js`) — they'll paste updated queries in chat, often with inline tweaks (e.g. adding `ISNULL(LS.DELIVDATE, L0.DELIVDATE)` or correcting `A.RSRC` → `L.RSRC`); apply their exact SQL rather than rewriting it
-- **Dates always European `dd/mm/yyyy`** (times 24h `HH:MM`) — use `public/src/date-fmt.js` (`DateFmt.d / dt / parse / euToIso / bind`); never `toLocaleDateString` or `<input type="date">` for visible fields (browser locale shows mm/dd/yyyy). Internally keep Date / ISO.
-- **Greek UI labels throughout** (Πρόγραμμα Παραγωγής, Μη Προγραμματισμένες, Αυτόματο, Έξοδος, etc.)
-- **One file-naming quirk:** `xlsx.mini.min.js` had to be renamed to `xlsx.min.js` to match the HTML reference
+- **Terse** responses; short status. Ask before major refactors / design changes ("Provide feedback before moving on to making any changes").
+- **Merge only on an explicit "merge"**; bump the version on every merge and report it.
+- **Dates dd/mm/yyyy**, times 24h. **Greek UI** labels.
+- The user edits SQL themselves and pastes it — apply their exact SQL (now in `soft1/Foxline.planning.js`) and remind them to paste the script into Soft1 after changes.
+- Ask the user for Soft1 schema facts (they answer with screenshots / native getData dumps); don't use noma.
+- Credentials in chat: the user rotates test/production accounts — no need to warn.
+- OpenAI is connected (images: `gpt-image-2` / `gpt-image-1.5` for transparency) — used for the app icon.
 
 ---
 
-## 10. Where to start for common next tasks
+## 10. Where to change things
 
-| Task | Where to look / change |
+| Task | Where |
 |---|---|
-| Add / change a query | `soft1/Foxline.planning.js` (new `Get...` function) → `worker/routes/data.js` `DATASETS` → `public/src/data-service.js` caller. Changing only the SQL of an existing dataset = AJS only |
-| Add a new write-back field | `soft1/Foxline.planning.js` → `SaveSchedule` AND `worker/routes/data.js` → `validOrder` AND `public/src/data-service.js` → `saveOrders` payload |
-| Change the shift calculation | `public/src/data-service.js` → `SHIFT_TIMES` + `_explodeShifts()` |
-| Change block appearance | `public/src/gantt-renderer.js` → `renderBlocks()` + CSS in `styles.css` |
-| Change drop validation | `public/src/ui-controller.js` → `DragDropManager.on('drop', ...)` handler |
-| Show another Soft1 record natively | `worker/routes/record.js` → add object + LOCATEINFO to `RECORDS`; call `Soft1Bridge.record(object, key)` |
-| Add a new Worker route | `worker/index.js` route table + `worker/routes/*.js` |
-| Soft1 Web Services call shape | `worker/soft1-client.js` → `callService()` wraps all POSTs |
+| Change a query | `soft1/Foxline.planning.js` only (then user pastes it into Soft1) |
+| New dataset | AJS `Get…` + `worker/routes/data.js DATASETS` + `public/src/data-service.js` |
+| New write-back field | AJS `SaveSchedule` + `worker/routes/data.js validOrder/clean` + `data-service.js saveOrders` |
+| Calendar logic | AJS `*CalendarWeek*` + `worker/routes/calendar.js ACTIONS` + `ui-controller.js` (`_saveSoft1Changes`, banner) / `calendar.js` |
+| Shift times / explode | `data-service.js SHIFT_TIMES` + `_explodeShifts()`; working-time math `work-time.js` |
+| Duration formula | `data-service.js durationBreakdown / computeWorkMinutes`; span/magnet `ui-controller.js _computeSpan` |
+| Auto-place / chain | `scheduler-engine.js autoPlace / buildChainIndex / getChainViolations` |
+| Block appearance | `gantt-renderer.js renderBlocks()` + `styles.css` |
+| Cards | `info-card.js` (machine/order), native records `worker/routes/record.js` |
+| Dates | `public/src/date-fmt.js` |
+| Worker routes | `worker/index.js` + `worker/routes/*.js` |
+| Soft1 HTTP / encoding | `worker/soft1-client.js`, `worker/encoding.js` |
 
 ---
 
-## 11. Immediate next step the user is likely to ask about
+## 11. Local dev & testing
 
-- **Get the Worker deployed** — walk the user through the 3 setup steps (§4 Pending) with their actual S1Services URL
-- **Validate the login flow** against real Soft1 — the login/authenticate response shape in `loginAndAuthenticate()` is best-effort; may need tweaks once we see real responses
-- **Deploy `soft1/Foxline.planning.js`** on Soft1 and test `Ping` → `GetMachines` → `GetOrdersInWeek` → `SaveSchedule`
-- **Verify calendar AJS on real Soft1**: `CreateCalendarWeek` (object insert + date pin), `SaveCalendarWeek`, `FillMissingWeeks`; check `GetOrderDetails` columns (`F.REMARKS`, `S.VARCHAR01`)
-- **Audit log** — user already has one; integrate with SaveSchedule when access is provided
-- **Possibly add Cloudflare Access** in front of the Worker for extra auth layer before the Soft1 login (CF Access = org SSO, then Soft1 login = app-level)
+```bash
+npm install
+npm run dev     # wrangler dev → http://localhost:8787 (needs real Soft1 login for data)
+npm run deploy  # manual deploy (normally Workers Builds deploys main)
+npm run tail    # live logs (dataset timings)
+```
+
+How changes have been verified (scripts were kept in the session scratchpad, not in the repo):
+- `node --check` on every JS file (incl. the AJS).
+- AJS logic run in Node against a **fake `X`** object (GETSQLDATASET/RUNSQL/CREATEOBJ stubs) — ISO week codes, create/copy/save calendar.
+- **Playwright, mock mode** (`file://…/production-planner.html`, `calendar.html`): drag/drop span, undo/redo, draft, filters, cards, search-jump, auto-place, print, dates.
+- **Playwright, web mode with intercepted `/api/*`** (fake Soft1 responses served on `http://pp.test`): calendar banner/create/save payloads, save-conflict handling, production progress, auto-place week creation, session banner.
+- `wrangler dev` smoke test: `/api/version`, auth gate redirects, 401s.
+Nothing replaces a real Soft1 run — see §5 «Not yet verified».
+
+---
+
+## 12. Likely next steps
+
+- User pastes the latest `Foxline.planning.js`; verify calendar create/save/fill on real Soft1 and the order card/production data.
+- Integrate the user's existing **audit log** with `SaveSchedule`.
+- Per-row shift times when `STARTTIME/ENDTIME` are added to `CCCFXPCALLNS`.
+- Optional: Cloudflare Access in front of the Worker (org SSO before the Soft1 login).
