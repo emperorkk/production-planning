@@ -27,6 +27,7 @@ const PRODUCTION_DATASETS = {
   PmGetRunningJobs:      [],
   PmGetMachineStatus:    [],
   PmGetMachineActivity:  ['day'],
+  PmGetTodayProduction:  [],
   PmGetMachineList:      [],
   PmSearchProductionOrders: ['q', 'status', 'machine', 'limit'],
   PmSearchCustomerOrders:   ['q', 'limit'],

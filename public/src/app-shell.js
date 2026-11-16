@@ -15,8 +15,15 @@
   'use strict';
 
   var APPS = {
-    planner:    { href: 'production-planner.html', label: 'Προγραμματισμός',     icon: '📅', desktopOnly: true, full: true },
-    production: { href: 'production.html',         label: 'Διαχείριση παραγωγής', icon: '🏭' }
+    planner:    { href: 'production-planner.html', label: 'Προγραμματισμός',     icon: '📅', desktopOnly: true, full: true,
+                  svg: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7 13h4M7 17h7"/>' },
+    production: { href: 'production.html',         label: 'Διαχείριση παραγωγής', icon: '🏭',
+                  svg: '<path d="M3 21V10l6 4V10l6 4V6l6 3v12z"/><path d="M3 21h18"/>' }
+  };
+  // Line icons for menu layout (24×24, stroke = currentColor)
+  var SVG = {
+    password: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+    logout:   '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/>'
   };
   var LAST_APP_KEY = 'pp-last-app';
 
@@ -134,7 +141,7 @@
     availableApps().forEach(function (k) {
       if (k === current) return;
       var a = APPS[k];
-      actions.push({ id: 'btn-switch-' + k, cls: 'as-switch', icon: a.icon, label: a.label,
+      actions.push({ id: 'btn-switch-' + k, cls: 'as-switch', icon: a.icon, svg: a.svg, label: a.label,
                      title: 'Μετάβαση σε: ' + a.label, href: a.href,
                      run: function () {
                        if (!confirmLeave()) return;
@@ -145,8 +152,8 @@
     if (isWeb) {
       var openPw = bindPasswordDialog(toast);
       actions.push({ id: 'btn-password', cls: 'as-password', icon: '🔑', label: 'Αλλαγή κωδικού',
-                     title: 'Αλλαγή κωδικού πρόσβασης', iconOnly: true, run: openPw });
-      actions.push({ id: 'btn-logout', cls: 'as-logout', icon: '↪', label: 'Έξοδος',
+                     title: 'Αλλαγή κωδικού πρόσβασης', iconOnly: true, svg: SVG.password, run: openPw });
+      actions.push({ id: 'btn-logout', cls: 'as-logout', icon: '↪', svg: SVG.logout, label: 'Έξοδος',
                      title: 'Αποσύνδεση (' + (Soft1Bridge.user || '') + ')',
                      run: function () {
                        if (!confirmLeave()) return;
@@ -160,7 +167,9 @@
       if (opts.menu) {
         b = el(a.href ? 'a' : 'button', { id: a.id, className: 'as-menu-item ' + a.cls, title: a.title });
         if (a.href) b.setAttribute('href', a.href); else b.setAttribute('type', 'button');
-        b.appendChild(el('span', { className: 'as-icon', 'aria-hidden': 'true' }, a.icon));
+        var ic = el('span', { className: 'as-icon', 'aria-hidden': 'true' }, a.svg ? null : a.icon);
+        if (a.svg) ic.innerHTML = '<svg viewBox="0 0 24 24">' + a.svg + '</svg>';
+        b.appendChild(ic);
         b.appendChild(el('span', { className: 'as-label' }, a.label));
         opts.menu.appendChild(b);
       } else if (opts.toolbar) {

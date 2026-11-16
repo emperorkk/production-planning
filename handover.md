@@ -201,6 +201,7 @@ Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload
 | `PmGetRunningJobs` | — | open orders with `STAGELINENUM` 1 (setup) / 2 (production) or a roll in the last 2 h; progress, last roll, operator (latest `CCCFXPRDOSTAGE.INSUSER`) |
 | `PmGetMachineStatus` | — | active machines + last roll time / order |
 | `PmGetMachineActivity` | `day` | roll timestamps per machine (day −1 … +2; client keeps 06:00→06:00) |
+| `PmGetTodayProduction` | — | per machine `{machine, rolls, kg}` since the production day began (06:00) — totals row |
 | `PmGetMachineList` | — | RSRC id, code, name, isActive, setupTime, waitTime, speed, phase, phaseName, remarks |
 | `PmSearchProductionOrders` | `q`, `status` (open\|done\|all), `machine`, `limit` ≤200 | production orders (+ customer, sales order, progress) |
 | `PmSearchCustomerOrders` | `q`, `limit` ≤200 | sales orders `SOSOURCE=1351` that have production orders + counts |
@@ -230,7 +231,7 @@ Implementation notes:
 | 0.5.1 | European dates `dd/mm/yyyy` everywhere (`date-fmt.js`, text date inputs) |
 | 0.6.0 | Auto-place creates the missing calendar week from the previous one before planning |
 | 0.7.0 | Change password (🔑 next to Έξοδος) via native Soft1 `changePassword` |
-| 0.8.0 | **Διαχείριση παραγωγής** (`production.html`, mobile-first, burger menu, PWA install): running jobs, machine idle overview, production/customer order search, RSRC editing (setData). Shared app shell (switcher/🔑/Έξοδος). Access levels on login (1199 full / 1200 production-only), landing by device. Vlachos Bros branding (login + new app) |
+| 0.8.0 | **Διαχείριση παραγωγής** (`production.html`, mobile-first, burger menu, PWA install): running jobs, machine idle overview, production/customer order search, RSRC editing (setData). Shared app shell (switcher/🔑/Έξοδος). Access levels on login (1199 full / 1200 production-only), landing by device. Design system with light/dark/system theme (login + new app), phase-grouped overview with totals (`PmGetTodayProduction`), app icon from the Vlachos Bros mark |
 
 ### Status
 - ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
@@ -273,7 +274,8 @@ Implementation notes:
 - Idle: day picker (dd/mm/yyyy) + threshold 15/30/60/120'. Production day 06:00→06:00; shift windows from `GetShifts` (1=06–14, 2=14–22, 3=22–06); idle = gap without a roll inside a shift longer than the threshold (up to now). Timeline bar per machine. Notifications: later.
 - Orders: search (fincode, item, customer, sales order, PO) + status chips + machine filter → order sheet (`GetOrderDetails` + rolls). Customers: search sales orders → their production orders.
 - Machines: list + edit sheet (setup, wait, speed, active, remarks) → `/api/machine` → native setData RSRC.
-- Branding: Vlachos Bros red `#ee1c25` / dark red `#be161e` / black, Comfortaa + Source Sans 3 (Google Fonts); logo `icons/vb-logo.png`, mark `icons/vb-mark.png` (from vlachosbrossa.gr). PWA icons still the planner icon.
+- **Design system** (v0.8): light / dark / system theme (`src/theme.js`, `html[data-theme]`, stored in `localStorage pp-theme`; header ☾/☀ toggle + menu segment). Neutral zinc base, Vlachos red only as accent (light `#dc1f2b`, dark `#f0444e`); status green/amber/red/grey with soft tints. Inter (Greek) + JetBrains Mono for codes/times (Google Fonts). Sidebar ≥1024px, drawer on phones, bottom sheets, totals row (in production / setup / idle / kg today), machines grouped by phase (Vlachos: 2 printing, 3 laminating, 4 slitters, 1 bagger). Tokens at the top of `src/production.css`; login page uses the same CSS. Planner keeps its own look (decision: not restyled).
+- Icons: `icons/pm-*` from the Vlachos Bros site icon (512px mark) → PWA icons (`pm-icon-192/512`, `pm-maskable-512`), `pm-apple-180`, `pm-32`, header mark `pm-mark-64`. Planner keeps the old icon/manifest.
 
 **Calendar (`calendar.html?week=YYYY-MM-DD`)**: machines × 7 days × 3 shifts; click cell / machine name (row) / day or shift header (column) to toggle; changed cells outlined; hours per machine; create week (from previous / empty); «Συμπλήρωση» fills missing weeks up to a date (≤26); Αποθήκευση στο Soft1 (Ctrl+S); ←/→ weeks.
 

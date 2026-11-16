@@ -34,6 +34,7 @@
 //                                                 or a roll in the last 2 h) + progress + operator
 //   PmGetMachineStatus                            active machines + last roll time / order
 //   PmGetMachineActivity  day (YYYY-MM-DD)        roll timestamps per machine, day 06:00 → next day 06:00 (+ margin)
+//   PmGetTodayProduction                          kg + rolls per machine since the production day began (06:00)
 //   PmGetMachineList                              RSRC editable values (setup, wait, speed, active, remarks)
 //   PmSearchProductionOrders q, status(open|done|all), machine, limit(≤200)
 //   PmSearchCustomerOrders   q, limit(≤200)       sales orders (SOSOURCE 1351) that have production orders
@@ -785,6 +786,21 @@ function PmGetMachineActivity(Prms)
    " WHERE F.COMPANY = " + company() +
    " AND PP.TRNDATE >= DATEADD(DAY, -1, " + d + ") AND PP.TRNDATE < DATEADD(DAY, 2, " + d + ")" +
    " ORDER BY F.CCCFXRSRC, ISNULL(T.INSDATE, PP.TRNDATE)");
+}
+
+// Production day = 06:00 → 06:00 (before 06:00 it is still yesterday's day)
+function PmGetTodayProduction(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ var dayStart = "DATEADD(HOUR, 6, CAST(CAST(DATEADD(HOUR, -6, GETDATE()) AS DATE) AS DATETIME))";
+ return sqlRows(
+   "SELECT F.CCCFXRSRC AS machine, COUNT(*) AS rolls, SUM(PP.QTY1) AS kg" +
+   " FROM CCCFXPRDOPRD PP INNER JOIN FINDOC F ON F.FINDOC = PP.FINDOC" +
+   " LEFT OUTER JOIN MTRLOT T ON T.MTRLOT = PP.MTRLOT" +
+   " WHERE F.COMPANY = " + company() +
+   " AND PP.TRNDATE >= CAST(DATEADD(DAY, -1, GETDATE()) AS DATE)" +
+   " AND ISNULL(T.INSDATE, PP.TRNDATE) >= " + dayStart +
+   " GROUP BY F.CCCFXRSRC");
 }
 
 function PmGetMachineList(Prms)

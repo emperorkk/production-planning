@@ -30,7 +30,8 @@ public/                           ← served as static assets by the Worker
 ├── production.webmanifest, sw.js ← PWA install (network-only service worker)
 └── src/
     ├── app-shell.js / .css       ← shared chrome: app switcher · 🔑 change password · Έξοδος
-    ├── production-app.js / production.css ← Διαχείριση παραγωγής (Vlachos Bros red/black)
+    ├── production-app.js / production.css ← Διαχείριση παραγωγής (design tokens, light/dark)
+    ├── theme.js                  ← light / dark / system theme (login + production app)
     ├── soft1-bridge.js           ← web | mock — /api/data + /api/save
     ├── data-service.js           ← dataset calls + row mapping (no SQL)
     ├── scheduler-engine.js       ← conflict / deadline / utilisation logic

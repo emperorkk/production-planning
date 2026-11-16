@@ -1,153 +1,117 @@
 <!doctype html>
-<html lang="el">
+<html lang="el" data-theme="light">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="icon" href="/favicon.ico" sizes="any" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
-  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#2c3e50" />
-  <title>Σύνδεση — Vlachos Bros Παραγωγή</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#ffffff" />
+  <script src="/src/theme.js"></script>
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/pm-32.png" />
+  <link rel="apple-touch-icon" href="/icons/pm-apple-180.png" />
+  <link rel="manifest" href="/production.webmanifest" />
+  <title>Σύνδεση — Παραγωγή Vlachos Bros</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/src/production.css" />
   <style>
-    :root { color-scheme: light; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      height: 100%;
-      font-family: 'Source Sans 3', 'Source Sans Pro', -apple-system, 'Segoe UI', Arial, sans-serif;
-      background: linear-gradient(90deg, #ee1c25 0 50%, #111 50% 100%);
-      color: #222;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-    }
-    .card {
-      width: 100%;
-      max-width: 400px;
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 8px 32px rgba(10, 20, 50, 0.12);
-      overflow: hidden;
-    }
-    .card-header {
-      padding: 20px 24px 16px;
-      background: #111;
-      color: #fff;
-      border-bottom: 4px solid #ee1c25;
-      display: flex; gap: 16px; align-items: center;
-    }
-    .card-header .logo { width: 64px; height: auto; background: #fff; padding: 4px; border-radius: 6px; flex-shrink: 0; }
-    .card-header h1 { font-family: 'Comfortaa', inherit; font-size: 18px; font-weight: 700; }
-    .card-header p  { font-size: 12px; opacity: .8; margin-top: 4px; }
-    .card-body { padding: 24px; }
-    label {
-      display: block;
-      font-size: 11px;
-      font-weight: 600;
-      color: #555;
-      text-transform: uppercase;
-      letter-spacing: .4px;
-      margin-bottom: 4px;
-      margin-top: 14px;
-    }
-    label:first-of-type { margin-top: 0; }
-    input {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 5px;
-      font-size: 14px;
-      font-family: inherit;
-    }
-    input:focus { outline: 2px solid #ee1c25; outline-offset: -1px; border-color: transparent; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    button {
-      width: 100%;
-      margin-top: 20px;
-      padding: 11px;
-      border: none;
-      border-radius: 5px;
-      background: #ee1c25;
-      color: #fff;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    button:hover:not(:disabled) { background: #be161e; }
-    button:disabled { opacity: .5; cursor: wait; }
-    .error {
-      margin-top: 14px;
-      padding: 10px;
-      background: #fde2e2;
-      color: #c0392b;
-      border: 1px solid #f5b7b1;
-      border-radius: 4px;
-      font-size: 12px;
-      display: none;
-    }
+    body { display: grid; place-items: center; padding: 24px 16px; padding-top: max(24px, env(safe-area-inset-top));
+      background:
+        radial-gradient(900px 500px at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+        radial-gradient(700px 400px at 100% 100%, color-mix(in srgb, var(--text) 6%, transparent), transparent 60%),
+        var(--bg); }
+    .login { width: 100%; max-width: 400px; }
+    .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+    .login-brand img { width: 44px; height: 44px; border-radius: 11px; box-shadow: 0 0 0 1px var(--border), var(--shadow); }
+    .login-brand .t { font-size: 20px; font-weight: 700; letter-spacing: -.025em; }
+    .login-brand .s { font-size: 12.5px; color: var(--muted); }
+    .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 22px; box-shadow: var(--shadow-lg); }
+    .login-card h1 { font-size: 17px; font-weight: 650; letter-spacing: -.015em; margin: 0 0 4px; }
+    .login-card .lead { font-size: 13px; color: var(--muted); margin: 0 0 18px; }
+    .f { margin-bottom: 14px; }
+    .f label, .f .lbl { display: block; font-size: 12.5px; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    details { margin-bottom: 14px; }
+    summary { font-size: 12.5px; color: var(--muted); cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; }
+    summary::-webkit-details-marker { display: none; }
+    summary::before { content: '›'; display: inline-block; transition: transform .15s; }
+    details[open] summary::before { transform: rotate(90deg); }
+    details[open] summary { margin-bottom: 10px; }
+    .access { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .access label { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 11px 12px; border: 1px solid var(--border-strong); border-radius: 12px;
+      cursor: pointer; background: var(--surface); transition: border-color .15s, box-shadow .15s; margin: 0; }
+    .access input { position: absolute; opacity: 0; pointer-events: none; }
+    .access .a-t { font-size: 13.5px; font-weight: 600; color: var(--text); }
+    .access .a-s { font-size: 11.5px; color: var(--muted); }
+    .access label:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .access label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .submit { width: 100%; height: 44px; justify-content: center; margin-top: 6px; font-size: 14.5px; }
+    .error { display: none; margin-top: 12px; }
     .error.visible { display: block; }
-    .access { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid #d1d5db; border-radius: 5px; overflow: hidden; }
-    .access label { margin: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 9px 6px;
-      font-size: 12px; text-transform: none; letter-spacing: 0; color: #333; cursor: pointer; background: #fff; line-height: 1.25; }
-    .access label + label { border-left: 1px solid #d1d5db; }
-    .access input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-    .access input:checked + span { font-weight: 700; }
-    .access label:has(input:checked) { background: #111; color: #fff; }
-    .access label:has(input:focus-visible) { outline: 2px solid #ee1c25; outline-offset: -2px; }
-    .footer {
-      text-align: center;
-      padding: 12px;
-      background: #f8f9fa;
-      font-size: 11px;
-      color: #888;
-      border-top: 1px solid #eee;
-    }
+    .login-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 12px; color: var(--muted); padding: 0 4px; }
+    .login-foot .seg button { height: 28px; font-size: 12px; padding: 0 9px; }
   </style>
 </head>
 <body>
-  <form id="login-form" class="card" autocomplete="on">
-    <div class="card-header">
-      <img class="logo" src="/icons/vb-logo.png" alt="Vlachos Bros" width="64" />
-      <div>
-        <h1>Παραγωγή</h1>
-        <div class="app-version" data-app-version style="font-size:11px;opacity:.6;margin:2px 0 6px;"></div>
-        <p>Σύνδεση με Soft1 Web Account</p>
-      </div>
+  <main class="login">
+    <div class="login-brand">
+      <img src="/icons/pm-mark-64.png" alt="" />
+      <div><div class="t">Παραγωγή</div><div class="s">ΑΦΟΙ ΒΛΑΧΟΥ Α.Β.Ε.Ε.</div></div>
     </div>
-    <div class="card-body">
-      <label for="username">Χρήστης</label>
-      <input id="username" name="username" type="text" required autocomplete="username" autofocus />
 
-      <label for="password">Κωδικός</label>
-      <input id="password" name="password" type="password" required autocomplete="current-password" />
+    <form id="login-form" class="login-card" autocomplete="on">
+      <h1>Σύνδεση</h1>
+      <p class="lead">Με τον λογαριασμό Soft1 Web Account</p>
 
-      <div class="row">
-        <div>
-          <label for="company">Εταιρία</label>
-          <input id="company" name="company" type="number" placeholder="προαιρετικό" autocomplete="off" />
-        </div>
-        <div>
-          <label for="branch">Υποκ/μα</label>
-          <input id="branch" name="branch" type="number" placeholder="προαιρετικό" autocomplete="off" />
+      <div class="f"><label for="username">Χρήστης</label>
+        <input id="username" name="username" class="input" type="text" required autocomplete="username" autofocus /></div>
+      <div class="f"><label for="password">Κωδικός</label>
+        <input id="password" name="password" class="input" type="password" required autocomplete="current-password" /></div>
+
+      <div class="f"><span class="lbl" id="access-lbl">Πρόσβαση</span>
+        <div class="access" role="radiogroup" aria-labelledby="access-lbl">
+          <label><input type="radio" name="access" value="full" /><span class="a-t">Πλήρης</span><span class="a-s">Προγραμματισμός + Διαχείριση</span></label>
+          <label><input type="radio" name="access" value="production" /><span class="a-t">Διαχείριση</span><span class="a-s">Μόνο διαχείριση παραγωγής</span></label>
         </div>
       </div>
 
-      <label style="margin-top:14px">Πρόσβαση</label>
-      <div class="access" role="radiogroup" aria-label="Πρόσβαση">
-        <label><input type="radio" name="access" value="full" /><span>Προγραμματισμός<br/>+ Διαχείριση</span></label>
-        <label><input type="radio" name="access" value="production" /><span>Διαχείριση<br/>παραγωγής</span></label>
-      </div>
+      <details>
+        <summary>Εταιρία / υποκατάστημα</summary>
+        <div class="row2">
+          <div><label class="lbl" for="company" style="font-size:12.5px;color:var(--text-2);display:block;margin-bottom:6px">Εταιρία</label>
+            <input id="company" name="company" class="input" type="number" placeholder="προαιρετικό" autocomplete="off" /></div>
+          <div><label class="lbl" for="branch" style="font-size:12.5px;color:var(--text-2);display:block;margin-bottom:6px">Υποκ/μα</label>
+            <input id="branch" name="branch" class="input" type="number" placeholder="προαιρετικό" autocomplete="off" /></div>
+        </div>
+      </details>
 
-      <button id="btn-login" type="submit">Σύνδεση</button>
-      <div id="error" class="error"></div>
+      <button id="btn-login" class="btn brand submit" type="submit">Σύνδεση</button>
+      <div id="error" class="error" role="alert"></div>
+    </form>
+
+    <div class="login-foot">
+      <span data-app-version></span>
+      <div class="seg" role="radiogroup" aria-label="Θέμα" id="theme-seg">
+        <button type="button" role="radio" data-theme-set="system">Σύστημα</button>
+        <button type="button" role="radio" data-theme-set="light">Φωτεινό</button>
+        <button type="button" role="radio" data-theme-set="dark">Σκούρο</button>
+      </div>
     </div>
-    <div class="footer">ΑΦΟΙ ΒΛΑΧΟΥ Α.Β.Ε.Ε. — Προγραμματισμός &amp; Διαχείριση παραγωγής</div>
-  </form>
+  </main>
 
   <script src="/src/login.js" defer></script>
   <script src="/src/version.js"></script>
+  <script>
+    (function () {
+      var seg = document.getElementById('theme-seg');
+      function paint() {
+        seg.querySelectorAll('button').forEach(function (b) {
+          var on = b.getAttribute('data-theme-set') === Theme.get();
+          b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+      }
+      paint(); window.addEventListener('themechange', paint);
+      seg.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) Theme.set(b.getAttribute('data-theme-set')); });
+    })();
+  </script>
 </body>
 </html>
