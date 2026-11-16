@@ -36,6 +36,8 @@
     <nav class="nav" aria-label="Ενότητες">
       <a class="nav-item" href="#running" data-view="running">
         <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Τρέχουσες παραγωγές</span><span class="count" id="nav-count-running"></span></a>
+      <a class="nav-item" href="#schedule" data-view="schedule">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 5l1.5-1.5L6 5M3 19l1.5 1.5L6 19M4.5 3.5v17"/></svg><span>Πρόγραμμα ημέρας</span></a>
       <a class="nav-item" href="#idle" data-view="idle">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></svg><span>Αδράνεια μηχανών</span><span class="count" id="nav-count-idle"></span></a>
       <a class="nav-item" href="#orders" data-view="orders">
@@ -98,6 +100,21 @@
           </div>
         </div>
         <div id="running-list"></div>
+      </section>
+
+      <!-- Πρόγραμμα ημέρας (move jobs up / down) -->
+      <section id="view-schedule" class="view" hidden>
+        <div class="toolbar">
+          <div class="date-nav">
+            <button id="sch-prev" class="icon-btn" type="button" aria-label="Προηγούμενη ημέρα"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+            <input id="sch-day" class="input input-date" type="text" aria-label="Ημέρα παραγωγής" />
+            <button id="sch-next" class="icon-btn" type="button" aria-label="Επόμενη ημέρα"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+            <button id="sch-today" class="btn" type="button">Σήμερα</button>
+          </div>
+          <select id="sch-machine" class="input select" aria-label="Μηχανή"><option value="">Όλες οι μηχανές</option></select>
+        </div>
+        <p class="hint">Οι εργασίες κάθε μηχανής με τη σειρά τους (06:00 → 06:00). ↑ / ↓ αλλάζει θέση με την προηγούμενη / επόμενη εργασία: το ζεύγος κρατά το ίδιο χρονικό παράθυρο και κάθε εργασία τη διάρκειά της. Η αλλαγή γράφεται αμέσως στο Soft1. Ολοκληρωμένες και ξεκινημένες εργασίες δεν μετακινούνται.</p>
+        <div id="sch-list"></div>
       </section>
 
       <!-- Αδράνεια μηχανών -->

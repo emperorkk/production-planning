@@ -26,7 +26,8 @@ planner    ──/api/data {dataset}──▶ whitelist → /JS/Foxline.planning
            ──/api/change-password ─▶ native changePassword {clientID, appId, OLD, NEW}
            ──/api/me, /api/version, /api/logout
 production ──/api/data {Pm…}────▶ PRODUCTION_DATASETS → /JS/Foxline.planning/Pm… ─▶ custom AJS
- .html     ──/api/machine ───────▶ native setData OBJECT=RSRC (whitelisted fields)
+ .html     ──/api/machine ───────▶ native setData OBJECT=RSRC (SETUPTIME, MPRDQTY only)
+           ──/api/move ──────────▶ …/SaveSchedule (dates only, same machine, optimistic lock required)
 ```
 
 **Access levels** (`worker/access.js`, chosen on the login page, stored in the session):
@@ -93,7 +94,7 @@ worker/
     ├── data.js                   ← /api/data (DATASETS whitelist + params), /api/save (validOrder)
     ├── record.js                 ← /api/record (RECORDS whitelist: RSRC + LOCATEINFO)
     ├── calendar.js               ← /api/calendar (ACTIONS: get | weeks | create | save | fill)
-    └── production.js             ← /api/machine (setData RSRC: SETUPTIME, WAITTIME, MPRDQTY, ISACTIVE, REMARKS)
+    └── production.js             ← /api/machine (setData RSRC: SETUPTIME, MPRDQTY), /api/move (dates via SaveSchedule, ≤10 orders)
 soft1/Foxline.planning.js         ← Soft1 AJS web service — ALL SQL — paste into Soft1
 legacy/embedded/                  ← DEPRECATED x=external planner — FROZEN
 scripts/sync-to-softone.mjs       ← LEGACY: legacy/embedded → C:\SoftOne\Vlachos Bros\ (npm run sync-embedded-legacy)
@@ -201,6 +202,7 @@ Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload
 | `PmGetStageLines` | — | stage detail lines `{stage, line, name, sostatus, isLast}` (table `STAGE_LINES_TABLE` in the AJS — confirm name) |
 | `PmGetMachineNow` | — | active machines + latest `CCCFXPRDOSTAGE` event (≤14 d) + that order's progress |
 | `PmGetStageEvents` | `day` | stage events per machine for the production day (+ last event before it per machine) |
+| `PmGetDaySchedule` | `day` | orders with a machine whose DATE01–DATE02 overlaps the production day + latest stage event (lock) |
 | `PmGetOrderStages` | `findoc` | stage history of one order (time, line, operator, TIMEDIF, remarks, PC) |
 | `PmGetMachineActivity` | `day` | roll timestamps per machine (day −1 … +2; client keeps 06:00→06:00) |
 | `PmGetTodayProduction` | — | per machine `{machine, rolls, kg}` since the production day began (06:00) — totals row |
@@ -277,7 +279,8 @@ Implementation notes:
 - Running: one card per active machine, grouped by phase; state pill = current stage line name (Παραγωγή / Setup / Διάλλειμα …) since HH:MM + operator; current order + progress. KPIs: σε παραγωγή / setup / στάση / χωρίς εργασία / kg σήμερα.
 - Idle: day picker (dd/mm/yyyy). Production day 06:00→06:00; shift windows from `GetShifts` (1=06–14, 2=14–22, 3=22–06). Timeline per machine coloured by stage state (green production, amber setup, red stop, grey shift without work), chips with time per reason, utilisation %. Notifications: later.
 - Orders: search (fincode, item, customer, sales order, PO) + status chips + machine filter → order sheet (`GetOrderDetails` + rolls). Customers: search sales orders → their production orders.
-- Machines: list + edit sheet (setup, wait, speed, active, remarks) → `/api/machine` → native setData RSRC.
+- **Πρόγραμμα ημέρας**: per machine the day's jobs in order (06:00→06:00) with ↑ / ↓. One step = swap with the neighbour: the pair keeps its outer window [first.start, second.end], each job keeps its (clock) duration, the gap between them is kept. Written immediately via `/api/move` → `SaveSchedule` with the loaded dates as optimistic lock; if one of the two fails, the written one is reverted. Locked: completed (MTRSTS 1) and started (has stage events) jobs. Note: durations are clock time, not shift-aware working time (the planner's `WorkTime`).
+- Machines: list + edit sheet — **only setup time (`SETUPTIME`) and speed (`MPRDQTY`) are editable** (user decision); wait time / active / remarks read-only → `/api/machine` → native setData RSRC.
 - **Design system** (v0.8): light / dark / system theme (`src/theme.js`, `html[data-theme]`, stored in `localStorage pp-theme`; header ☾/☀ toggle + menu segment). Neutral zinc base, Vlachos red only as accent (light `#dc1f2b`, dark `#f0444e`); status green/amber/red/grey with soft tints. Inter (Greek) + JetBrains Mono for codes/times (Google Fonts). Sidebar ≥1024px, drawer on phones, bottom sheets, totals row (in production / setup / idle / kg today), machines grouped by phase (Vlachos: 2 printing, 3 laminating, 4 slitters, 1 bagger). Tokens at the top of `src/production.css`; login page uses the same CSS. Planner keeps its own look (decision: not restyled).
 - Icons: `icons/pm-*` from the Vlachos Bros site icon (512px mark) → PWA icons (`pm-icon-192/512`, `pm-maskable-512`), `pm-apple-180`, `pm-32`, header mark `pm-mark-64`. Planner keeps the old icon/manifest.
 

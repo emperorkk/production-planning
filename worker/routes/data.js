@@ -28,6 +28,7 @@ const PRODUCTION_DATASETS = {
   PmGetMachineNow:       [],
   PmGetStageEvents:      ['day'],
   PmGetOrderStages:      ['findoc'],
+  PmGetDaySchedule:      ['day'],
   PmGetMachineActivity:  ['day'],
   PmGetTodayProduction:  [],
   PmGetMachineList:      [],

@@ -15,6 +15,7 @@
  *   POST /api/calendar      → production calendar (CCCFXPCAL) via Foxline.planning
  *   POST /api/save          → write schedule via Foxline.planning/SaveSchedule      (full access)
  *   POST /api/machine       → native Soft1 setData RSRC (Διαχείριση παραγωγής)
+ *   POST /api/move          → move production orders in time (dates only) via SaveSchedule
  *
  * Access levels (worker/access.js): 'full' (appId 1199) = planner + production app,
  * 'production' (appId 1200) = production app only. Planner pages are desktop-only.
@@ -24,7 +25,7 @@ import { handleLogin, handleLogout, handleMe, handleChangePassword } from './rou
 import { handleData, handleSave }              from './routes/data.js';
 import { handleRecord }                        from './routes/record.js';
 import { handleCalendar }                      from './routes/calendar.js';
-import { handleMachineSave }                   from './routes/production.js';
+import { handleMachineSave, handleMove }       from './routes/production.js';
 import { getSession }                          from './session.js';
 import { sessionAccess, homeFor, isMobileRequest, PLANNER_PAGES, PRODUCTION_HOME } from './access.js';
 import { VERSION }                             from './version.js';
@@ -66,6 +67,7 @@ export default {
       }
       if (path === '/api/data')   return handleData(request, env);
       if (path === '/api/machine') return handleMachineSave(request, env);
+      if (path === '/api/move')    return handleMove(request, env);
       if (path === '/api/record') return handleRecord(request, env);
       if (path === '/api/calendar') return handleCalendar(request, env);
       if (path === '/api/save')   return handleSave(request, env);

@@ -10,6 +10,7 @@
 
   var VIEWS = {
     running:   { title: 'Τρέχουσες παραγωγές' },
+    schedule:  { title: 'Πρόγραμμα ημέρας' },
     idle:      { title: 'Αδράνεια μηχανών' },
     orders:    { title: 'Εντολές παραγωγής' },
     customers: { title: 'Παραγγελίες πελατών' },
@@ -49,6 +50,8 @@
     runningFilter: 'all',
     idleDay: null,
     stageLines: {},
+    schDay: null,
+    schedule: {},
     ordersStatus: 'open',
     runningTimer: null,
     loaded: {}
@@ -167,11 +170,13 @@
     if (state.machines && !force) return state.machines;
     state.machines = await ds('PmGetMachineList');
     state.machines.forEach(function (m) { if (m.phaseName) state.phaseNames[String(m.phase)] = String(m.phaseName); });
-    var sel = $('orders-machine'), cur = sel.value;
-    sel.innerHTML = '<option value="">Όλες οι μηχανές</option>' + state.machines
-      .filter(function (m) { return flag(m.isActive); })
-      .map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.name || m.code) + '</option>'; }).join('');
-    sel.value = cur;
+    ['orders-machine', 'sch-machine'].forEach(function (id) {
+      var sel = $(id), cur = sel.value;
+      sel.innerHTML = '<option value="">Όλες οι μηχανές</option>' + state.machines
+        .filter(function (m) { return flag(m.isActive); })
+        .map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.name || m.code) + '</option>'; }).join('');
+      sel.value = cur;
+    });
     return state.machines;
   }
 
@@ -201,7 +206,8 @@
       if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
     $('pm-view-title').textContent = VIEWS[v].title;
-    $('pm-view-sub').textContent = v === 'idle' ? 'Ημέρα παραγωγής ' + longDate(state.idleDay) : longDate(new Date());
+    $('pm-view-sub').textContent = v === 'idle' ? 'Ημέρα παραγωγής ' + longDate(state.idleDay)
+      : v === 'schedule' ? 'Ημέρα παραγωγής ' + longDate(state.schDay) : longDate(new Date());
     $('pm-live').hidden = v !== 'running';
     document.title = VIEWS[v].title + ' — Διαχείριση παραγωγής';
     openDrawer(false);
@@ -213,6 +219,7 @@
   function refresh() {
     switch (state.view) {
       case 'running':   return loadRunning();
+      case 'schedule':  return loadSchedule();
       case 'idle':      return loadIdle();
       case 'orders':    return searchOrders();
       case 'customers': return searchCustomers();
@@ -336,6 +343,113 @@
                         : 'Πλάνο λήξης<b>' + esc(pe ? when(pe) : '—') + '</b>') + '</div></div>' +
       '</button></div>';
   }
+
+  // ── Πρόγραμμα ημέρας: jobs per machine, move one step up / down ───────────
+  function minuteStr(d) { return DateFmt.toIso(d) + ' ' + DateFmt.t(d); }   // 'YYYY-MM-DD HH:MM' (SaveSchedule format)
+  function timeRange(a, b, day) {
+    var same = function (d) { return d.toDateString() === day.toDateString(); };
+    return (same(a) ? '' : DateFmt.dm(a) + ' ') + DateFmt.t(a) + '–' + (same(b) || b.toDateString() === a.toDateString() ? '' : DateFmt.dm(b) + ' ') + DateFmt.t(b);
+  }
+
+  async function loadSchedule() {
+    var list = $('sch-list'), day = state.schDay;
+    $('sch-day').value = DateFmt.d(day);
+    if (state.view === 'schedule') $('pm-view-sub').textContent = 'Ημέρα παραγωγής ' + longDate(day);
+    loading(true);
+    try {
+      var res = await Promise.all([loadMachines(), ds('PmGetDaySchedule', { day: DateFmt.toIso(day) })]);
+      var jobs = res[1].map(function (r) {
+        return { id: String(r.id), fincode: r.fincode, machine: String(r.machine), itemCode: r.itemCode, itemName: r.itemName,
+                 customer: r.customer, delivery: parseDate(r.deliveryDate), status: parseInt(r.status, 10), phase: r.phase,
+                 kilos: r.kilos, start: parseDate(r.plannedStart), end: parseDate(r.plannedEnd),
+                 started: r.evStage != null && r.evStage !== '' };
+      }).filter(function (j) { return j.start && j.end; });
+      jobs.forEach(function (j) { j.locked = j.status === 1 ? 'Ολοκληρωμένη' : j.started ? 'Σε εξέλιξη' : ''; });
+      var byMachine = {};
+      jobs.forEach(function (j) { (byMachine[j.machine] = byMachine[j.machine] || []).push(j); });
+      Object.keys(byMachine).forEach(function (k) { byMachine[k].sort(function (a, b) { return a.start - b.start || a.id - b.id; }); });
+      state.schedule = byMachine;
+      renderSchedule();
+    } catch (e) { errorBox(list, e); }
+    finally { loading(false); }
+  }
+
+  function renderSchedule() {
+    var list = $('sch-list'), day = state.schDay, filter = $('sch-machine').value;
+    var machines = (state.machines || []).filter(function (m) {
+      return (!filter || String(m.id) === filter) && (flag(m.isActive) || state.schedule[String(m.id)]);
+    }).sort(function (a, b) { return (parseInt(a.phase, 10) || 99999) - (parseInt(b.phase, 10) || 99999) || String(a.code).localeCompare(String(b.code)); });
+    var dayEnd = new Date(day.getTime() + 30 * 3600000), late = productionDay(new Date());
+    var html = machines.map(function (m) {
+      var jobs = state.schedule[String(m.id)] || [];
+      return '<section class="group"><div class="group-h"><h3>' + esc(m.name || m.code) + '</h3><span class="n">' + jobs.length + '</span>' +
+        '<span class="line"></span><span class="sum">' + esc(phaseLabel(m.phase)) + '</span></div>' +
+        (jobs.length ? '<div class="sch-list">' + jobs.map(function (j, i) {
+          var prev = jobs[i - 1], next = jobs[i + 1];
+          var canUp = !j.locked && prev && !prev.locked, canDown = !j.locked && next && !next.locked;
+          var isLate = j.delivery && j.status !== 1 && j.delivery < late;
+          return '<div class="sch-row' + (j.locked ? ' locked' : '') + '" data-id="' + esc(j.id) + '">' +
+            '<div class="sch-pos">' + (i + 1) + '</div>' +
+            '<button class="sch-main" type="button" data-order="' + esc(j.id) + '">' +
+              '<div class="sch-time">' + esc(timeRange(j.start, j.end, day)) + '<span>' + esc(dur((j.end - j.start) / 60000)) + '</span></div>' +
+              '<div class="job-top"><span class="code">' + esc(j.fincode) + '</span><span class="job-item">' + esc(j.itemCode) + ' · ' + esc(j.itemName) + '</span></div>' +
+              '<div class="job-cust">' + esc(j.customer || '—') + (j.delivery ? ' · <span' + (isLate ? ' class="late"' : '') + '>παράδοση ' + esc(DateFmt.d(j.delivery)) + '</span>' : '') + '</div>' +
+              (j.locked ? '<span class="pill ' + (j.status === 1 ? 'done' : 'run') + ' sch-lock">' + esc(j.locked) + '</span>' : '') +
+            '</button>' +
+            '<div class="sch-btns">' +
+              '<button class="icon-btn" type="button" data-mv="-1" data-m="' + esc(m.id) + '" data-i="' + i + '"' + (canUp ? '' : ' disabled') + ' aria-label="Νωρίτερα (' + esc(j.fincode) + ')" title="Νωρίτερα"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>' +
+              '<button class="icon-btn" type="button" data-mv="1" data-m="' + esc(m.id) + '" data-i="' + i + '"' + (canDown ? '' : ' disabled') + ' aria-label="Αργότερα (' + esc(j.fincode) + ')" title="Αργότερα"><svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>' +
+            '</div></div>';
+        }).join('') + '</div>' : '<p class="hint" style="margin:0 0 4px">Καμία εργασία σε αυτή την ημέρα.</p>') + '</section>';
+    }).join('');
+    list.innerHTML = html || empty('Καμία μηχανή.');
+    void dayEnd;
+  }
+
+  // Swap job i with its neighbour (dir −1 = earlier, +1 = later). The pair keeps its outer window
+  // [first.start, second.end]; each job keeps its duration; the gap between them is kept.
+  var _moving = false;
+  async function moveJob(machineId, i, dir) {
+    if (_moving) return;
+    var jobs = state.schedule[String(machineId)] || [];
+    var a = jobs[dir < 0 ? i - 1 : i], b = jobs[dir < 0 ? i : i + 1];     // a before b
+    if (!a || !b || a.locked || b.locked) return;
+    var durA = a.end - a.start, durB = b.end - b.start;
+    var bStart = new Date(a.start.getTime()), bEnd = new Date(a.start.getTime() + durB);
+    var aEnd = new Date(b.end.getTime()), aStart = new Date(b.end.getTime() - durA);
+    var payload = [
+      { findoc: b.id, start: minuteStr(bStart), end: minuteStr(bEnd), origMachine: machineId, origStart: minuteStr(b.start), origEnd: minuteStr(b.end) },
+      { findoc: a.id, start: minuteStr(aStart), end: minuteStr(aEnd), origMachine: machineId, origStart: minuteStr(a.start), origEnd: minuteStr(a.end) }
+    ];
+    var moved = dir < 0 ? b : a;
+    _moving = true;
+    document.querySelectorAll('#sch-list [data-mv]').forEach(function (x) { x.disabled = true; });
+    loading(true);
+    try {
+      var r = await Soft1Bridge.moveOrders(payload);
+      var errs = r.errors || [];
+      if (errs.length) {
+        // undo whatever was written, so the two jobs never overlap
+        var failed = {}; errs.forEach(function (e) { failed[String(e.findoc)] = true; });
+        var undo = payload.filter(function (p) { return !failed[String(p.findoc)]; }).map(function (p) {
+          return { findoc: p.findoc, start: p.origStart, end: p.origEnd, origMachine: p.origMachine, origStart: p.start, origEnd: p.end };
+        });
+        if (undo.length && r.saved) { try { await Soft1Bridge.moveOrders(undo); } catch (_) {} }
+        toast('Δεν έγινε η μετακίνηση: ' + (errs[0].error || 'σφάλμα'), 'error');
+      } else {
+        if (Soft1Bridge.isMock) MOCK.move(payload);
+        toast('Η ' + moved.fincode + ' μετακινήθηκε ' + (dir < 0 ? 'νωρίτερα' : 'αργότερα'), 'success');
+      }
+    } catch (e) {
+      toast('Σφάλμα: ' + (e.message || e), 'error');
+    } finally {
+      _moving = false; loading(false);
+      await loadSchedule();
+      var row = document.querySelector('#sch-list .sch-row[data-id="' + moved.id + '"] [data-mv="' + dir + '"]');
+      if (row && !row.disabled) row.focus();
+    }
+  }
+  function setSchDay(d) { state.schDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()); loadSchedule(); }
 
   // ── Αδράνεια μηχανών (timeline from stage events, inside the shift calendar) ─
   function shiftBlocks(row, day) {
@@ -614,10 +728,10 @@
     openSheet(m.name || m.code, 'Επεξεργασία μηχανής · Soft1 RSRC · ' + (m.code || ''),
       '<form id="machine-form" class="form" novalidate>' +
         '<div class="field"><label for="mf-setup">Χρόνος setup</label><div class="unit"><input id="mf-setup" class="input" type="text" inputmode="decimal" value="' + esc(val(m.setupTime)) + '" /><span>λεπτά</span></div></div>' +
-        '<div class="field"><label for="mf-wait">Χρόνος αναμονής</label><div class="unit"><input id="mf-wait" class="input" type="text" inputmode="decimal" value="' + esc(val(m.waitTime)) + '" /><span>λεπτά</span></div></div>' +
         '<div class="field"><label for="mf-speed">Ταχύτητα</label><div class="unit"><input id="mf-speed" class="input" type="text" inputmode="decimal" value="' + esc(val(m.speed)) + '" /><span>m/min</span></div></div>' +
-        '<div class="field"><label for="mf-active">Κατάσταση</label><label class="switch"><input id="mf-active" type="checkbox"' + (flag(m.isActive) ? ' checked' : '') + ' /> Ενεργή</label></div>' +
-        '<div class="field full"><label for="mf-remarks">Σχόλια</label><textarea id="mf-remarks" class="input" maxlength="2000">' + esc(m.remarks || '') + '</textarea></div>' +
+        '<dl class="kv field full" style="margin-top:4px"><dt>Χρόνος αναμονής</dt><dd>' + num(m.waitTime) + ' λεπτά</dd>' +
+          '<dt>Κατάσταση</dt><dd>' + (flag(m.isActive) ? 'Ενεργή' : 'Ανενεργή') + '</dd>' +
+          (m.remarks ? '<dt>Σχόλια</dt><dd>' + esc(m.remarks) + '</dd>' : '') + '</dl>' +
         '<div id="mf-error" class="form-error" role="alert"></div>' +
         '<div class="form-actions"><button type="button" class="btn" id="mf-cancel">Άκυρο</button>' +
         '<button type="submit" class="btn brand" id="mf-save">Αποθήκευση στο Soft1</button></div>' +
@@ -626,7 +740,7 @@
     $('machine-form').addEventListener('submit', async function (e) {
       e.preventDefault();
       var err = $('mf-error'); err.textContent = '';
-      var vals = { SETUPTIME: $('mf-setup').value, WAITTIME: $('mf-wait').value, MPRDQTY: $('mf-speed').value };
+      var vals = { SETUPTIME: $('mf-setup').value, MPRDQTY: $('mf-speed').value };
       for (var k in vals) {
         var s = String(vals[k]).trim().replace(',', '.'), n = parseFloat(s);
         if (s === '' || !/^\d+(\.\d+)?$/.test(s) || !isFinite(n)) { err.textContent = 'Μη έγκυρη τιμή — μόνο θετικοί αριθμοί'; return; }
@@ -634,21 +748,13 @@
       }
       var fields = {};
       if (vals.SETUPTIME !== parseFloat(m.setupTime)) fields.SETUPTIME = vals.SETUPTIME;
-      if (vals.WAITTIME  !== parseFloat(m.waitTime))  fields.WAITTIME  = vals.WAITTIME;
       if (vals.MPRDQTY   !== parseFloat(m.speed))     fields.MPRDQTY   = vals.MPRDQTY;
-      var act = $('mf-active').checked ? 1 : 0;
-      if (act !== (flag(m.isActive) ? 1 : 0)) fields.ISACTIVE = act;
-      var rem = $('mf-remarks').value;
-      if (rem !== (m.remarks || '')) fields.REMARKS = rem;
       if (!Object.keys(fields).length) { closeSheet(); return; }
       $('mf-save').disabled = true;
       try {
         await Soft1Bridge.machineSave(m.id, fields);
         if ('SETUPTIME' in fields) m.setupTime = fields.SETUPTIME;
-        if ('WAITTIME' in fields)  m.waitTime  = fields.WAITTIME;
         if ('MPRDQTY' in fields)   m.speed     = fields.MPRDQTY;
-        if ('ISACTIVE' in fields)  m.isActive  = fields.ISACTIVE;
-        if ('REMARKS' in fields)   m.remarks   = fields.REMARKS;
         closeSheet();
         renderMachines();
         toast('Η μηχανή αποθηκεύτηκε στο Soft1', 'success');
@@ -771,6 +877,22 @@
     $('idle-next').addEventListener('click', function () { setIdleDay(addDays(state.idleDay, 1)); });
     $('idle-today').addEventListener('click', function () { setIdleDay(productionDay(new Date())); });
 
+    // Πρόγραμμα ημέρας
+    state.schDay = productionDay(new Date());
+    DateFmt.bind($('sch-day'));
+    function schFromInput() { var d = DateFmt.parse($('sch-day').value); if (d) setSchDay(d); }
+    $('sch-day').addEventListener('change', schFromInput);
+    $('sch-day').addEventListener('keydown', function (e) { if (e.key === 'Enter') schFromInput(); });
+    $('sch-prev').addEventListener('click', function () { setSchDay(addDays(state.schDay, -1)); });
+    $('sch-next').addEventListener('click', function () { setSchDay(addDays(state.schDay, 1)); });
+    $('sch-today').addEventListener('click', function () { setSchDay(productionDay(new Date())); });
+    $('sch-machine').addEventListener('change', renderSchedule);
+    $('sch-list').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-mv]'); if (!b || b.disabled) return;
+      e.stopPropagation();
+      moveJob(b.getAttribute('data-m'), parseInt(b.getAttribute('data-i'), 10), parseInt(b.getAttribute('data-mv'), 10));
+    });
+
     // Searches
     $('orders-form').addEventListener('submit', function (e) { e.preventDefault(); searchOrders(); });
     $('orders-status').addEventListener('click', function (e) {
@@ -857,6 +979,24 @@
       });
     });
     function evRow(e) { return Object.assign({}, e, { t: iso(e.t) }); }
+    // Daily schedule store: per machine a sequence of jobs from the machine's current order onward
+    var sched = [], schId = 9101;
+    var ITEMS = [['80398', 'Φιλμ τυπωμένο Α'], ['80412', 'Φιλμ τυπωμένο Δ'], ['80420', 'Λαμινέ τριπλό Ε'], ['79731', 'Ρολό κομμένο Ζ'], ['81002', 'Σακούλα Doypack']];
+    var CUST = ['ΑΛΦΑ ΤΡΟΦΙΜΑ Α.Ε.', 'ΒΗΤΑ ΓΑΛΑΚΤΟΚΟΜΙΚΑ', 'ΓΑΜΜΑ ΚΑΦΕΣ', 'ΔΕΛΤΑ ΣΝΑΚ'];
+    machines.forEach(function (m, mi) {
+      if (m.id === 202) return;
+      var t = new Date(day0.getTime() + (mi % 3) * 20 * 60000), first = SCRIPT[m.id] && SCRIPT[m.id][0];
+      for (var k = 0; k < 5; k++) {
+        var mins = 90 + ((mi * 7 + k * 13) % 5) * 45, it = ITEMS[(mi + k) % ITEMS.length];
+        var o = k === 0 && first ? orders.filter(function (x) { return x.id === first; })[0] : null;
+        sched.push({ id: o ? o.id : schId++, fincode: o ? o.fincode : 'ΕΠΑ00' + (12400 + schId), machine: m.id, machineName: m.name,
+                     itemCode: o ? o.itemCode : it[0], itemName: o ? o.itemName : it[1], customer: o ? o.customer : CUST[(mi + k) % 4],
+                     deliveryDate: DateFmt.toIso(addDays(now, (k + mi) % 6 - 1)), kilos: 400 + k * 150, status: o ? o.status : 0,
+                     phase: m.phase, start: new Date(t), end: new Date(t.getTime() + mins * 60000),
+                     evStage: o && events.some(function (e) { return e.findoc === o.id; }) ? m.phase : null });
+        t = new Date(t.getTime() + (mins + 10) * 60000);
+      }
+    });
     // roll timestamps for the idle overview
     var rollTimes = {};
     var d0 = at(6, 0, now.getHours() < 6 ? -1 : 0), lim = Math.min(now.getTime(), d0.getTime() + 86400000);
@@ -875,12 +1015,24 @@
       for (var d = 1; d <= 7; d++) for (var s = 1; s <= 3; s++) r['S' + d + s] = flags[s - 1] && d <= 6 ? 1 : 0;
       return r;
     }
+    function parseMin(v) { var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(v); return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]); }
     return {
+      move: function (list) {
+        list.forEach(function (p) {
+          var j = sched.filter(function (x) { return String(x.id) === String(p.findoc); })[0];
+          if (j) { j.start = parseMin(p.start); j.end = parseMin(p.end); }
+        });
+      },
       dataset: function (name, p) {
         switch (name) {
           case 'GetPhaseMachines': return machines.map(function (m) { return { machine: m.id, phase: m.phase, phaseName: m.phaseName }; });
           case 'PmGetMachineList': return machines.map(function (m) { return Object.assign({}, m); });
           case 'PmGetStageLines': return stageLines;
+          case 'PmGetDaySchedule': {
+            var ds0 = DateFmt.fromIso(p.day), w0 = ds0.getTime() + 6 * 3600000, w1 = w0 + 24 * 3600000;
+            return sched.filter(function (j) { return j.start.getTime() < w1 && j.end.getTime() > w0; })
+              .map(function (j) { return Object.assign({}, j, { plannedStart: iso(j.start), plannedEnd: iso(j.end) }); });
+          }
           case 'PmGetMachineNow': return machines.filter(function (m) { return m.isActive; }).map(function (m) {
             var ev = events.filter(function (e) { return e.machine === m.id; }).sort(function (a, b) { return b.t - a.t; })[0];
             var o = ev && orders.filter(function (x) { return x.id === ev.findoc; })[0];

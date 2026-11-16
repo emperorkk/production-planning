@@ -236,6 +236,20 @@
       return data.data || {};
     },
 
+    // Move production orders in time (same machine) via /api/move → SaveSchedule.
+    // orders: [{ findoc, start, end, origMachine, origStart, origEnd }]  ('YYYY-MM-DD HH:MM')
+    moveOrders: async function (orders) {
+      if (MODE === 'mock') { console.log('[MOCK MOVE]', orders); return { ok: true, saved: orders.length, skipped: 0, errors: [] }; }
+      const res = await fetch('/api/move', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ orders: orders })
+      });
+      if (res.status === 401) { window.location.replace('/login.html'); throw new Error('Session expired'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok && !data.errors) throw new Error(data.error || ('HTTP ' + res.status));
+      return data;   // { ok, saved, skipped, conflicts, errors[] }
+    },
+
     // 'full' (planner + production app) | 'production' (production app only)
     get access() { return MODE === 'web' ? _webSession.access : 'full'; },
 

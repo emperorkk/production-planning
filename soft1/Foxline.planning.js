@@ -34,6 +34,9 @@
 //   PmGetMachineNow                               active machines + latest CCCFXPRDOSTAGE event + that order's progress
 //   PmGetStageEvents      day (YYYY-MM-DD)        stage events per machine for the production day (+ state carried in)
 //   PmGetOrderStages      findoc                  stage history of one production order
+//   PmGetDaySchedule      day (YYYY-MM-DD)        orders planned on a machine overlapping the production day
+//                                                 (06:00 → 06:00) + latest stage event; moves are written
+//                                                 with SaveSchedule (worker /api/move: dates only, same machine)
 //   PmGetMachineActivity  day (YYYY-MM-DD)        roll timestamps per machine, day 06:00 → next day 06:00 (+ margin)
 //   PmGetTodayProduction                          kg + rolls per machine since the production day began (06:00)
 //   PmGetMachineList                              RSRC editable values (setup, wait, speed, active, remarks)
@@ -819,6 +822,24 @@ function PmGetStageEvents(Prms)
    "   ORDER BY G.INSDATE DESC, G.CCCFXPRDOSTAGE DESC) X" +
    " WHERE R.SODTYPE = 25 AND R.RSRCTYPE < 50 AND R.COMPANY = " + company() +
    " ORDER BY machine, t, id");
+}
+
+// Daily schedule: orders with a machine whose planned window overlaps day 06:00 → day+1 06:00
+function PmGetDaySchedule(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isIsoDate(Prms.day)) return responseError("day must be YYYY-MM-DD");
+ var d = "'" + Prms.day.replace(/-/g, '') + "'";
+ var sql = _pmOrderSelect()
+   .replace("SELECT F.FINDOC AS id", "SELECT E.stage AS evStage, E.line AS evLine, F.FINDOC AS id")
+   .replace(" WHERE F.SOSOURCE = 5171",
+     " OUTER APPLY (SELECT TOP 1 G.STAGE AS stage, G.STAGELINENUM AS line FROM CCCFXPRDOSTAGE G" +
+     "   WHERE G.FINDOC = F.FINDOC ORDER BY G.INSDATE DESC, G.CCCFXPRDOSTAGE DESC) E" +
+     " WHERE F.SOSOURCE = 5171");
+ return sqlRows(sql +
+   " AND F.CCCFXRSRC IS NOT NULL" +
+   " AND L0.DATE01 < DATEADD(HOUR, 30, " + d + ") AND L0.DATE02 > DATEADD(HOUR, 6, " + d + ")" +
+   " ORDER BY F.CCCFXRSRC, L0.DATE01, F.FINDOC");
 }
 
 // Stage history of one production order (order sheet)

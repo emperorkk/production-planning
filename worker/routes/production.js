@@ -1,10 +1,13 @@
 /**
  * «Διαχείριση παραγωγής» write endpoints (both access levels).
  *
- *   POST /api/machine  { key, fields:{ SETUPTIME, WAITTIME, MPRDQTY, ISACTIVE, REMARKS } }
+ *   POST /api/machine  { key, fields:{ SETUPTIME, MPRDQTY } }
  *        → native Soft1 setData OBJECT=RSRC (goes through the Soft1 object, not SQL)
+ *   POST /api/move     { orders:[{ findoc, start, end, origMachine, origStart, origEnd }] }  (1..10)
+ *        → Foxline.planning/SaveSchedule with machine = origMachine: only planned dates change,
+ *          optimistic lock always on (orig* required), completed orders are never written.
  */
-import { setRecord, getRecord } from '../soft1-client.js';
+import { setRecord, getRecord, saveSchedule } from '../soft1-client.js';
 import { getSession }           from '../session.js';
 import { sessionAppId }         from '../access.js';
 
@@ -19,13 +22,10 @@ const num = (min, max) => v => {
   return Number.isFinite(n) && n >= min && n <= max ? { ok: true, v: n } : { ok: false };
 };
 
-// Editable RSRC fields → validator
+// Editable RSRC fields → validator (decided with the user: setup time + speed only)
 export const RSRC_FIELDS = {
   SETUPTIME: num(0, 10000),          // λεπτά
-  WAITTIME:  num(0, 10000),          // λεπτά
-  MPRDQTY:   num(0, 100000),         // m/min
-  ISACTIVE:  v => (v === 0 || v === 1 || v === '0' || v === '1') ? { ok: true, v: Number(v) } : { ok: false },
-  REMARKS:   v => (typeof v === 'string' && v.length <= 2000) ? { ok: true, v } : { ok: false }
+  MPRDQTY:   num(0, 100000)          // m/min
 };
 
 export async function handleMachineSave(request, env) {
@@ -55,8 +55,41 @@ export async function handleMachineSave(request, env) {
     await setRecord(env, session.clientID, 'RSRC', key, { RSRC: [row] }, appId);
     console.log(`setData RSRC ${key} by ${session.user}: ${Object.keys(row).join(',')}`);
     const data = await getRecord(env, session.clientID, 'RSRC', key,
-      'RSRC:RSRC,CODE,NAME,' + Object.keys(RSRC_FIELDS).join(','), appId);
+      'RSRC:RSRC,CODE,NAME,WAITTIME,ISACTIVE,' + Object.keys(RSRC_FIELDS).join(','), appId);
     return json({ ok: true, data });
+  } catch (err) {
+    return json({ error: err.message || String(err) }, { status: 502 });
+  }
+}
+
+const DT_RX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+function validMove(o) {
+  return o && /^\d+$/.test(String(o.findoc)) && /^\d+$/.test(String(o.origMachine)) &&
+    DT_RX.test(o.start) && DT_RX.test(o.end) && DT_RX.test(o.origStart) && DT_RX.test(o.origEnd) &&
+    o.start < o.end;
+}
+
+export async function handleMove(request, env) {
+  if (request.method !== 'POST') return json({ error: 'POST required' }, { status: 405 });
+  const session = await getSession(request, env);
+  if (!session) return json({ error: 'Not authenticated' }, { status: 401 });
+
+  let body;
+  try { body = await request.json(); }
+  catch { return json({ error: 'Invalid JSON' }, { status: 400 }); }
+
+  const orders = body.orders;
+  if (!Array.isArray(orders) || orders.length < 1 || orders.length > 10) return json({ error: 'orders[] required (1..10)' }, { status: 400 });
+  if (!orders.every(validMove)) return json({ error: 'Invalid move payload' }, { status: 400 });
+
+  const clean = orders.map(o => ({
+    findoc: Number(o.findoc), machine: Number(o.origMachine), start: o.start, end: o.end,
+    origMachine: Number(o.origMachine), origStart: o.origStart, origEnd: o.origEnd
+  }));
+  try {
+    const result = await saveSchedule(env, session.clientID, clean);
+    console.log(`move by ${session.user}: ${clean.map(o => o.findoc + ' ' + o.start).join(', ')} → saved ${result.saved}`);
+    return json({ ok: result.success !== false, ...result });
   } catch (err) {
     return json({ error: err.message || String(err) }, { status: 502 });
   }
