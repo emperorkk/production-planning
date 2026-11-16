@@ -1,7 +1,7 @@
 # HANDOVER — Production Planning (Vlachos Bros)
 
 > Read this first. It contains everything a new chat session needs to pick up where the previous one left off.
-> **Current version: v0.7.0** (live on `main`, last updated 2026-11-16). Short rules for agents are in `CLAUDE.md`.
+> **Current version: v0.8.0** (live on `main`, last updated 2026-11-16). Short rules for agents are in `CLAUDE.md`.
 
 ---
 
@@ -241,7 +241,7 @@ Implementation notes:
 
 ### Status
 - ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
-- ✅ AJS deployed by the user (at least the dataset version). **The user must paste the latest `soft1/Foxline.planning.js` (v0.5.0 content, unchanged since)** for calendar, order card and production functions.
+- ✅ AJS deployed by the user (at least the dataset version). **The user must paste the latest `soft1/Foxline.planning.js` (v0.8.0: adds the Pm* functions)** — and confirm `STAGE_LINES_TABLE` (stage detail table name, placeholder `STAGELINES`).
 - ⚠️ **Not yet verified on real Soft1:** `CreateCalendarWeek` / `SaveCalendarWeek` / `FillMissingWeeks` (object insert + date pin — check a created week opens normally in Soft1), `GetOrderDetails` columns (`F.REMARKS`, `S.VARCHAR01`), `RSRC` LOCATEINFO fields in `worker/routes/record.js`, whether `ds.JSON` keeps alias case and its datetime format.
 
 ### Known limitations / future work
