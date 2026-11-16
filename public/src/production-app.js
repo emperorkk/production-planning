@@ -245,11 +245,15 @@
       });
     } catch (e) { console.warn('stage lines:', e); state.stageLines = {}; }
   }
+  // Lines that count as a stop whatever their SOSTATUS (user decision: «Αναμονή Οδηγιών» = stop)
+  var STOP_NAMES = ['αναμονη οδηγιων'];
+  function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); }
   function stageInfo(stage, line) {
     if (stage == null || stage === '' || line == null || line === '') return { cat: 'none', name: CAT.none.label };
     var l = state.stageLines[String(stage) + '|' + String(line)];
     if (!l) return { cat: 'run', name: 'Φάση ' + stage + ' / ' + line };
     if (l.isLast) return { cat: 'none', name: l.name, done: true };
+    if (STOP_NAMES.indexOf(norm(l.name)) >= 0) return { cat: 'stop', name: l.name };
     return { cat: l.sostatus === 1 ? 'setup' : l.sostatus === 3 ? 'stop' : 'run', name: l.name };
   }
   function isSlitting(phase) { return String(phase || '').charAt(0) === '3'; }   // rolls weighed after production
@@ -664,12 +668,12 @@
       var rows = await ds('PmSearchCustomerOrders', { q: $('customers-q').value.trim(), limit: 100 });
       list.innerHTML = rows.map(function (c) {
         var orders = parseInt(c.orders, 10) || 0, done = parseInt(c.done, 10) || 0;
-        var pct = orders ? Math.round(done / orders * 100) : 0, all = orders && done === orders;
+        var pct = orders ? Math.round(done / orders * 100) : 0, all = orders > 0 && done === orders;
         var fd = parseDate(c.firstDelivery);
         return '<button class="card" type="button" data-customer-order="' + esc(c.id) + '" data-title="' + esc(c.fincode) + '">' +
           '<div class="card-h"><div class="m-ico">' + svg('box') + '</div>' +
           '<div class="grow"><div class="c-title code">' + esc(c.fincode) + '</div><div class="c-sub">' + esc(c.customer || '—') + '</div></div>' +
-          '<span class="pill ' + (all ? 'done' : 'run') + '">' + done + '/' + orders + '</span></div>' +
+          (orders ? '<span class="pill ' + (all ? 'done' : 'run') + '">' + done + '/' + orders + '</span>' : '<span class="pill off">Χωρίς εντολές</span>') + '</div>' +
           '<div class="chips"><span class="chip">' + svg('cal') + esc(DateFmt.d(parseDate(c.trndate))) + '</span>' +
             (c.customerPO ? '<span class="chip">PO ' + esc(c.customerPO) + '</span>' : '') +
             (fd ? '<span class="chip">' + svg('clock') + 'Παράδοση ' + esc(DateFmt.d(fd)) + '</span>' : '') + '</div>' +

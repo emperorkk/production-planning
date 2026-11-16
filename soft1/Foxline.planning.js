@@ -41,7 +41,7 @@
 //   PmGetTodayProduction                          kg + rolls per machine since the production day began (06:00)
 //   PmGetMachineList                              RSRC editable values (setup, wait, speed, active, remarks)
 //   PmSearchProductionOrders q, status(open|done|all), machine, limit(≤200)
-//   PmSearchCustomerOrders   q, limit(≤200)       sales orders (SOSOURCE 1351) that have production orders
+//   PmSearchCustomerOrders   q, limit(≤200)       customer orders (SOSOURCE 1351, TFPRMS 201) + production order counts
 //   PmGetCustomerOrder       findoc               production orders of one sales order
 //   (RSRC writes go through native setData — worker /api/machine — not through this script)
 // Misc:
@@ -752,6 +752,7 @@ function _pmOrderSelect()
 //   TIMEDIF (minutes, filled when the job closes).
 // STAGELINENUM = LINENUM of the stage's detail lines (Setup, Παραγωγή, Διάλλειμα, Χαμ.Χρόνος, …)
 // with SOSTATUS 1 = setup, 2 = production/working, 3 = stopped; the stage's last line = completion.
+// (The app treats «Αναμονή Οδηγιών» as a stop although its SOSTATUS is 2 — user decision.)
 // The current state of a machine = its latest event (machine = FINDOC.CCCFXRSRC of the event's order).
 var STAGE_LINES_TABLE = 'STAGELINES';      // ← detail table of STAGE (confirm the name at Vlachos)
 
@@ -942,7 +943,7 @@ function PmSearchCustomerOrders(Prms)
    "   , MIN(L.DELIVDATE) AS firstDelivery" +
    "   FROM MTRLINES L INNER JOIN MTRDOC D ON D.FINDOC = L.FINDOC" +
    "   WHERE L.FINDOCS = S.FINDOC AND L.SOSOURCE = 5171 AND L.MTRTYPE = 1) X" +
-   " WHERE S.SOSOURCE = 1351 AND S.COMPANY = " + company() + " AND X.orders > 0" +
+   " WHERE S.SOSOURCE = 1351 AND S.TFPRMS = 201 AND S.COMPANY = " + company() +
    where + " ORDER BY S.TRNDATE DESC, S.FINDOC DESC");
 }
 
