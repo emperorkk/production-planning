@@ -48,7 +48,7 @@
     running: null,           // last running entries
     runningFilter: 'all',
     idleDay: null,
-    idleThreshold: 30,
+    stageLines: {},
     ordersStatus: 'open',
     runningTimer: null,
     loaded: {}
@@ -220,44 +220,67 @@
     }
   }
 
+  // ── Stage lines (state of a machine = its latest CCCFXPRDOSTAGE event) ─────
+  // SOSTATUS 1 = setup, 2 = production/working, 3 = stopped; last line of a stage = completion.
+  var CAT = {
+    run:   { label: 'Παραγωγή',       pill: 'run' },
+    setup: { label: 'Setup',          pill: 'setup' },
+    stop:  { label: 'Στάση',          pill: 'idle' },
+    none:  { label: 'Χωρίς εργασία',  pill: 'off' }
+  };
+  async function loadStageLines() {
+    try {
+      var rows = await ds('PmGetStageLines');
+      state.stageLines = {};
+      rows.forEach(function (r) {
+        state.stageLines[String(r.stage) + '|' + String(r.line)] =
+          { name: String(r.name || ''), sostatus: parseInt(r.sostatus, 10), isLast: flag(r.isLast) };
+      });
+    } catch (e) { console.warn('stage lines:', e); state.stageLines = {}; }
+  }
+  function stageInfo(stage, line) {
+    if (stage == null || stage === '' || line == null || line === '') return { cat: 'none', name: CAT.none.label };
+    var l = state.stageLines[String(stage) + '|' + String(line)];
+    if (!l) return { cat: 'run', name: 'Φάση ' + stage + ' / ' + line };
+    if (l.isLast) return { cat: 'none', name: l.name, done: true };
+    return { cat: l.sostatus === 1 ? 'setup' : l.sostatus === 3 ? 'stop' : 'run', name: l.name };
+  }
+  function isSlitting(phase) { return String(phase || '').charAt(0) === '3'; }   // rolls weighed after production
+
   // ── Τρέχουσες παραγωγές ────────────────────────────────────────────────────
   async function loadRunning(silent) {
     var list = $('running-list');
     if (!silent) loading(true);
     try {
-      var res = await Promise.all([ds('PmGetRunningJobs'), ds('PmGetMachineStatus'), ds('PmGetTodayProduction')]);
-      var jobs = res[0], status = res[1], today = {};
-      res[2].forEach(function (r) { today[String(r.machine)] = { kg: parseFloat(r.kg) || 0, rolls: parseInt(r.rolls, 10) || 0 }; });
-      var byMachine = {};
-      jobs.forEach(function (j) { var k = String(j.machine || ''); (byMachine[k] = byMachine[k] || []).push(j); });
-
-      var entries = status.map(function (m) {
-        var mj = byMachine[String(m.id)] || []; delete byMachine[String(m.id)];
-        return { id: String(m.id), name: m.name || m.code, code: m.code, phase: m.phase, lastRoll: parseDate(m.lastRoll),
-                 lastFincode: m.lastFincode, jobs: mj, today: today[String(m.id)] || { kg: 0, rolls: 0 } };
-      });
-      Object.keys(byMachine).forEach(function (k) {
-        var j0 = byMachine[k][0];
-        entries.push({ id: k, name: j0.machineName || 'Χωρίς μηχανή', code: '', phase: j0.phase, lastRoll: parseDate(j0.lastRoll),
-                       jobs: byMachine[k], today: today[k] || { kg: 0, rolls: 0 } });
-      });
-      entries.forEach(function (e) {
-        e.state = !e.jobs.length ? 'idle'
-                : e.jobs.every(function (j) { return parseInt(j.stageLine, 10) === 1; }) ? 'setup' : 'run';
+      var res = await Promise.all([ds('PmGetMachineNow'), ds('PmGetTodayProduction')]);
+      var today = {};
+      res[1].forEach(function (r) { today[String(r.machine)] = { kg: parseFloat(r.kg) || 0, rolls: parseInt(r.rolls, 10) || 0 }; });
+      var entries = res[0].map(function (m) {
+        var si = stageInfo(m.stage, m.line);
+        var hasOrder = m.findoc && si.cat !== 'none';
+        return { id: String(m.id), name: m.name || m.code, code: m.code, phase: m.phase,
+                 cat: si.cat, stateName: si.name, since: parseDate(m.since), operator: m.operator,
+                 lastFincode: m.fincode, order: hasOrder ? m : null,
+                 today: today[String(m.id)] || { kg: 0, rolls: 0 } };
       });
       state.running = entries;
 
-      var nRun = entries.filter(function (e) { return e.state === 'run'; }).length;
-      var nSetup = entries.filter(function (e) { return e.state === 'setup'; }).length;
-      var nIdle = entries.filter(function (e) { return e.state === 'idle'; }).length;
+      var n = { run: 0, setup: 0, stop: 0, none: 0 };
+      entries.forEach(function (e) { n[e.cat]++; });
       var kg = Object.keys(today).reduce(function (s, k) { return s + today[k].kg; }, 0);
+      function kpi(label, val, color, extra) {
+        return '<div class="kpi' + (extra || '') + '"><div class="kpi-l">' +
+          (color === 'live' ? '<span class="dot"></span>' : color ? '<span class="kpi-dot" style="background:' + color + '"></span>' : '') +
+          label + '</div><div class="kpi-v">' + val + '</div></div>';
+      }
       $('running-kpis').innerHTML =
-        '<div class="kpi"><div class="kpi-l"><span class="dot"></span>Σε παραγωγή</div><div class="kpi-v">' + nRun + '<small>/ ' + entries.length + '</small></div></div>' +
-        '<div class="kpi"><div class="kpi-l"><span class="kpi-dot" style="background:var(--warn)"></span>Setup</div><div class="kpi-v">' + nSetup + '</div></div>' +
-        '<div class="kpi' + (nIdle ? ' alert' : '') + '"><div class="kpi-l"><span class="kpi-dot" style="background:var(--accent)"></span>Χωρίς εργασία</div><div class="kpi-v">' + nIdle + '</div></div>' +
-        '<div class="kpi"><div class="kpi-l">Παραχθέντα σήμερα</div><div class="kpi-v">' + num(kg) + '<small>kg</small></div></div>';
-      $('nav-count-running').textContent = nRun + nSetup || '';
-      var ic = $('nav-count-idle'); ic.textContent = nIdle || ''; ic.classList.toggle('alert', nIdle > 0);
+        kpi('Σε παραγωγή', n.run + '<small>/ ' + entries.length + '</small>', 'live') +
+        kpi('Setup', n.setup, 'var(--warn)') +
+        kpi('Στάση', n.stop, 'var(--accent)', n.stop ? ' alert' : '') +
+        kpi('Χωρίς εργασία', n.none, 'var(--off)') +
+        kpi('Παραχθέντα σήμερα', num(kg) + '<small>kg</small>', '', ' wide');
+      $('nav-count-running').textContent = (n.run + n.setup) || '';
+      var ic = $('nav-count-idle'); ic.textContent = (n.stop + n.none) || ''; ic.classList.toggle('alert', n.stop > 0);
       $('pm-live-text').textContent = 'Live · ' + DateFmt.t(new Date());
       renderRunning();
     } catch (e) {
@@ -268,52 +291,53 @@
   function renderRunning() {
     var f = state.runningFilter;
     var rows = (state.running || []).filter(function (e) {
-      return f === 'all' || (f === 'idle' ? e.state === 'idle' : e.state !== 'idle');
+      var busy = e.cat === 'run' || e.cat === 'setup';
+      return f === 'all' || (f === 'idle' ? !busy : busy);
     });
-    if (!rows.length) { $('running-list').innerHTML = empty(f === 'idle' ? 'Όλες οι μηχανές έχουν εργασία.' : 'Καμία μηχανή.'); return; }
+    if (!rows.length) { $('running-list').innerHTML = empty(f === 'idle' ? 'Όλες οι μηχανές δουλεύουν.' : 'Καμία μηχανή.'); return; }
     $('running-list').innerHTML = byPhase(rows, function (e) { return e.phase; }).map(function (g) {
-      var busy = g.rows.filter(function (e) { return e.state !== 'idle'; }).length;
+      var busy = g.rows.filter(function (e) { return e.cat === 'run'; }).length;
       var kg = g.rows.reduce(function (s, e) { return s + e.today.kg; }, 0);
-      return '<section class="group">' + groupHead(g, busy + ' σε λειτουργία · ' + num(kg) + ' kg σήμερα') +
-        '<div class="grid">' + g.rows.map(machineCard).join('') + '</div></section>';
+      return '<section class="group">' + groupHead(g, busy + ' σε παραγωγή · ' + num(kg) + ' kg σήμερα' + (isSlitting(g.phase) ? '*' : '')) +
+        '<div class="grid">' + g.rows.map(machineCard).join('') + '</div>' +
+        (isSlitting(g.phase) ? '<p class="hint" style="margin:8px 0 0">* Ρολοκοπή: τα ρολά ζυγίζονται μετά την παραγωγή — kg / ώρα ρολού = ώρα ζύγισης.</p>' : '') +
+        '</section>';
     }).join('');
   }
 
   function machineCard(e) {
-    var pill = e.state === 'run' ? '<span class="pill run">Παραγωγή</span>'
-             : e.state === 'setup' ? '<span class="pill setup">Setup</span>'
-             : '<span class="pill idle">Χωρίς εργασία</span>';
+    var c = CAT[e.cat];
+    var pill = '<span class="pill ' + c.pill + '">' + esc(e.cat === 'none' ? c.label : e.stateName) + '</span>';
     var head = '<div class="card-h"><div class="m-ico">' + svg(phaseIcon(e.phase)) + '</div>' +
       '<div class="grow"><div class="c-title">' + esc(e.name) + '</div><div class="c-sub">' + esc(phaseLabel(e.phase)) +
       (e.code ? ' · ' + esc(e.code) : '') + '</div></div>' + pill + '</div>';
-    if (!e.jobs.length) {
-      var m = minsSince(e.lastRoll);
-      return '<div class="card">' + head +
-        '<div class="idle-note"><span class="big' + (m == null ? ' dim' : '') + '">' + (m == null ? '—' : esc(dur(m))) + '</span>' +
-        '<span>' + (e.lastRoll ? 'χωρίς ρολό από ' + esc(when(e.lastRoll)) : 'καμία καταγραφή ρολού') +
-        (e.lastFincode ? '<br>τελ. εντολή <span class="code">' + esc(e.lastFincode) + '</span>' : '') + '</span></div>' +
-        '<div class="meta"><div>Σήμερα<b>' + num(e.today.kg) + ' kg</b></div><div>Ρολά σήμερα<b>' + e.today.rolls + '</b></div><div></div></div>' +
-        '</div>';
+    var m = minsSince(e.since);
+    var stateRow = '<div class="state-row">' + svg('clock') +
+      (e.since ? '<span>' + esc(e.cat === 'none' ? (e.lastFincode ? 'Ολοκλήρωση ' : 'Από ') : 'Από ') + esc(when(e.since)) + '</span><b>' + esc(dur(m)) + '</b>'
+               : '<span>Καμία καταγραφή τις τελευταίες 14 ημέρες</span>') +
+      (e.operator && e.cat !== 'none' ? '<span class="chip">' + svg('user') + esc(e.operator) + '</span>' : '') + '</div>';
+    if (!e.order) {
+      return '<div class="card">' + head + stateRow +
+        (e.lastFincode ? '<div class="c-sub" style="margin-top:8px">Τελ. εντολή <span class="code">' + esc(e.lastFincode) + '</span></div>' : '') +
+        '<div class="meta"><div>Σήμερα<b>' + num(e.today.kg) + ' kg</b></div><div>Ρολά<b>' + e.today.rolls + '</b></div><div></div></div></div>';
     }
-    return '<div class="card">' + head + e.jobs.map(function (j) {
-      var kilos = parseFloat(j.kilos) || 0, prod = parseFloat(j.producedQty) || 0;
-      var pct = kilos > 0 ? Math.min(100, Math.round(prod / kilos * 100)) : 0;
-      var last = parseDate(j.lastRoll), setup = parseInt(j.stageLine, 10) === 1;
-      var pe = parseDate(j.plannedEnd);
-      return '<button class="job" type="button" data-order="' + esc(j.id) + '" aria-label="Εντολή ' + esc(j.fincode) + '">' +
-          '<div class="job-top"><span class="code">' + esc(j.fincode) + '</span><span class="job-item">' + esc(j.itemCode) + ' · ' + esc(j.itemName) + '</span></div>' +
-          '<div class="job-cust">' + esc(j.customer || '—') + (j.salesOrder ? ' · ' + esc(j.salesOrder) : '') + '</div>' +
-          '<div class="prog"><div class="bar' + (setup ? ' warn' : '') + '"><i style="width:' + pct + '%"></i></div><span class="pct">' + pct + '%</span></div>' +
-          '<div class="meta"><div>Παραχθέντα<b>' + num(prod) + ' / ' + num(kilos) + ' kg</b></div>' +
-          '<div>Ρολά<b>' + num(j.rolls) + '</b></div>' +
-          '<div>' + (last ? 'Τελ. ρολό<b>' + esc(DateFmt.t(last)) + ' · ' + esc(dur(minsSince(last))) + '</b>'
-                          : 'Πλάνο λήξης<b>' + esc(pe ? when(pe) : '—') + '</b>') + '</div></div>' +
-          (j.operator ? '<div class="chips"><span class="chip">' + svg('user') + esc(j.operator) + '</span></div>' : '') +
-        '</button>';
-    }).join('') + '</div>';
+    var j = e.order;
+    var kilos = parseFloat(j.kilos) || 0, prod = parseFloat(j.producedQty) || 0;
+    var pct = kilos > 0 ? Math.min(100, Math.round(prod / kilos * 100)) : 0;
+    var last = parseDate(j.lastRoll), pe = parseDate(j.plannedEnd);
+    return '<div class="card">' + head + stateRow +
+      '<button class="job" type="button" data-order="' + esc(j.findoc) + '" aria-label="Εντολή ' + esc(j.fincode) + '">' +
+        '<div class="job-top"><span class="code">' + esc(j.fincode) + '</span><span class="job-item">' + esc(j.itemCode) + ' · ' + esc(j.itemName) + '</span></div>' +
+        '<div class="job-cust">' + esc(j.customer || '—') + (j.salesOrder ? ' · ' + esc(j.salesOrder) : '') + '</div>' +
+        '<div class="prog"><div class="bar' + (e.cat === 'setup' ? ' warn' : '') + '"><i style="width:' + pct + '%"></i></div><span class="pct">' + pct + '%</span></div>' +
+        '<div class="meta"><div>Παραχθέντα<b>' + num(prod) + ' / ' + num(kilos) + ' kg</b></div>' +
+        '<div>Ρολά<b>' + num(j.rolls || 0) + '</b></div>' +
+        '<div>' + (last ? (isSlitting(e.phase) ? 'Τελ. ζύγιση' : 'Τελ. ρολό') + '<b>' + esc(DateFmt.t(last)) + ' · ' + esc(dur(minsSince(last))) + '</b>'
+                        : 'Πλάνο λήξης<b>' + esc(pe ? when(pe) : '—') + '</b>') + '</div></div>' +
+      '</button></div>';
   }
 
-  // ── Αδράνεια μηχανών ───────────────────────────────────────────────────────
+  // ── Αδράνεια μηχανών (timeline from stage events, inside the shift calendar) ─
   function shiftBlocks(row, day) {
     var dow = day.getDay() || 7, out = [];
     for (var s = 1; s <= 3; s++) {
@@ -329,22 +353,20 @@
     return merged;
   }
 
-  function idleGaps(blocks, times, thresholdMin, now) {
-    var thr = thresholdMin * 60000, gaps = [];
-    blocks.forEach(function (b) {
-      var end = Math.min(b[1].getTime(), now.getTime());
-      var prev = b[0].getTime();
-      if (end <= prev) return;
-      times.forEach(function (t) {
-        var x = t.getTime();
-        if (x < prev || x > end) return;
-        if (x - prev > thr) gaps.push([new Date(prev), new Date(x)]);
-        prev = x;
-      });
-      if (end - prev > thr) gaps.push([new Date(prev), new Date(end), true]);   // [2] = still open at "now"/shift end
+  // events (sorted) → segments [{from, to, cat, name}] clipped to [a, b]
+  function stateSegments(events, a, b) {
+    var segs = [], cur = { cat: 'none', name: CAT.none.label }, t = a.getTime(), end = b.getTime();
+    events.forEach(function (ev) {
+      var x = ev.t.getTime();
+      if (x <= t) { cur = ev.info; return; }
+      if (x >= end) return;
+      segs.push({ from: t, to: x, cat: cur.cat, name: cur.name });
+      cur = ev.info; t = x;
     });
-    return gaps;
+    if (end > t) segs.push({ from: t, to: end, cat: cur.cat, name: cur.name });
+    return segs.filter(function (s) { return s.to > s.from; });
   }
+  function overlap(a0, a1, b0, b1) { return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0)); }
 
   async function loadIdle() {
     var list = $('idle-list'), day = state.idleDay;
@@ -355,58 +377,80 @@
       var res = await Promise.all([
         loadMachines(),
         ds('GetShifts', { monday: DateFmt.toIso(mondayOf(day)) }),
+        ds('PmGetStageEvents', { day: DateFmt.toIso(day) }),
         ds('PmGetMachineActivity', { day: DateFmt.toIso(day) })
       ]);
       var machines = res[0].filter(function (m) { return flag(m.isActive); });
-      var shiftByMachine = {};
+      var shiftByMachine = {}, evByMachine = {}, rollsByMachine = {};
       res[1].forEach(function (r) { shiftByMachine[String(r.machine)] = r; });
-      var rollsByMachine = {};
       res[2].forEach(function (r) {
+        var t = parseDate(r.t); if (!t) return;
+        (evByMachine[String(r.machine)] = evByMachine[String(r.machine)] || []).push({ t: t, info: stageInfo(r.stage, r.line), operator: r.operator });
+      });
+      res[3].forEach(function (r) {
         var t = parseDate(r.t); if (!t) return;
         (rollsByMachine[String(r.machine)] = rollsByMachine[String(r.machine)] || []).push(t);
       });
       var now = new Date();
       var dayStart = new Date(day.getTime() + 6 * 3600000), span = 24 * 3600000, dayEnd = new Date(dayStart.getTime() + span);
-      function pct(d) { return Math.max(0, Math.min(100, (d.getTime() - dayStart.getTime()) / span * 100)); }
+      var until = new Date(Math.min(now.getTime(), dayEnd.getTime()));
+      var isToday = now >= dayStart && now < dayEnd;
+      function pct(x) { return Math.max(0, Math.min(100, (x - dayStart.getTime()) / span * 100)); }
 
+      if (until <= dayStart) { list.innerHTML = empty('Η ημέρα δεν έχει ξεκινήσει ακόμη.'); return; }
       var items = machines.map(function (m) {
-        var row = shiftByMachine[String(m.id)];
-        var blocks = row ? shiftBlocks(row, day) : [];
-        var times = (rollsByMachine[String(m.id)] || []).sort(function (a, b) { return a - b; });
-        var inDay = times.filter(function (t) { return t >= dayStart && t < dayEnd; });
-        var gaps = blocks.length ? idleGaps(blocks, times, state.idleThreshold, now) : [];
-        var idleMin = gaps.reduce(function (s, g) { return s + (g[1] - g[0]) / 60000; }, 0);
-        var last = gaps[gaps.length - 1];
-        var openGap = last && last[2] && now < blocks[blocks.length - 1][1] && Math.abs(last[1] - now) < 120000 ? last : null;
-        return { m: m, blocks: blocks, inDay: inDay, gaps: gaps, idleMin: idleMin, openGap: openGap };
+        var blocks = shiftByMachine[String(m.id)] ? shiftBlocks(shiftByMachine[String(m.id)], day) : [];
+        var evs = (evByMachine[String(m.id)] || []).sort(function (a, b) { return a.t - b.t; });
+        var segs = stateSegments(evs, dayStart, until);
+        var tot = { run: 0, setup: 0, stop: 0, none: 0 }, reasons = {}, shiftMin = 0;
+        blocks.forEach(function (b) {
+          var b0 = b[0].getTime(), b1 = Math.min(b[1].getTime(), until.getTime());
+          if (b1 <= b0) return;
+          shiftMin += (b1 - b0) / 60000;
+          segs.forEach(function (s) {
+            var o = overlap(s.from, s.to, b0, b1) / 60000; if (!o) return;
+            tot[s.cat] += o;
+            var rk = s.cat === 'none' ? CAT.none.label : s.name;
+            if (s.cat === 'stop' || s.cat === 'none') reasons[rk] = (reasons[rk] || 0) + o;
+          });
+        });
+        var cur = segs.length ? segs[segs.length - 1] : null;
+        return { m: m, blocks: blocks, segs: segs, tot: tot, reasons: reasons, shiftMin: shiftMin,
+                 idle: tot.stop + tot.none, util: shiftMin ? Math.round(tot.run / shiftMin * 100) : null,
+                 cur: isToday ? cur : null,
+                 rolls: isSlitting(m.phase) ? [] : (rollsByMachine[String(m.id)] || []).filter(function (t) { return t >= dayStart && t < dayEnd; }) };
       });
       if (!items.length) { list.innerHTML = empty('Δεν υπάρχουν ενεργές μηχανές.'); return; }
 
       list.innerHTML = byPhase(items, function (x) { return x.m.phase; }).map(function (g) {
-        var tot = g.rows.reduce(function (s, x) { return s + x.idleMin; }, 0);
-        return '<section class="group">' + groupHead(g, 'αδράνεια ' + dur(tot)) + '<div class="grid">' + g.rows.map(function (x) {
+        var idle = g.rows.reduce(function (s, x) { return s + x.idle; }, 0);
+        return '<section class="group">' + groupHead(g, 'αδράνεια ' + dur(idle)) + '<div class="grid">' + g.rows.map(function (x) {
           var m = x.m;
           var pill = !x.blocks.length ? '<span class="pill off">Χωρίς βάρδια</span>'
-                   : x.openGap ? '<span class="pill idle">Αδρανής από ' + esc(DateFmt.t(x.openGap[0])) + '</span>'
-                   : x.gaps.length ? '<span class="pill setup">' + x.gaps.length + (x.gaps.length === 1 ? ' διάστημα' : ' διαστήματα') + '</span>'
-                   : '<span class="pill run">Χωρίς αδράνεια</span>';
+                   : x.cur ? '<span class="pill ' + CAT[x.cur.cat].pill + '">' + esc(x.cur.cat === 'none' ? CAT.none.label : x.cur.name) + '</span>'
+                   : '<span class="pill ' + (x.util >= 75 ? 'run' : x.util >= 50 ? 'setup' : 'idle') + '">Αξιοποίηση ' + x.util + '%</span>';
           var bar = x.blocks.map(function (b) {
-            return '<div class="s" style="left:' + pct(b[0]) + '%;width:' + (pct(b[1]) - pct(b[0])) + '%"></div>';
-          }).join('') + x.gaps.map(function (gp) {
-            return '<div class="i" style="left:' + pct(gp[0]) + '%;width:' + Math.max(.5, pct(gp[1]) - pct(gp[0])) + '%"></div>';
-          }).join('') + x.inDay.map(function (t) {
-            return '<div class="r" style="left:' + pct(t) + '%"></div>';
-          }).join('') + (now > dayStart && now < dayEnd ? '<div class="n" style="left:' + pct(now) + '%"></div>' : '');
+            return '<div class="s" style="left:' + pct(b[0].getTime()) + '%;width:' + (pct(b[1].getTime()) - pct(b[0].getTime())) + '%"></div>';
+          }).join('') + x.segs.filter(function (s) { return s.cat !== 'none'; }).map(function (s) {
+            return '<div class="g ' + s.cat + '" title="' + esc(s.name + ' ' + DateFmt.t(new Date(s.from)) + '–' + DateFmt.t(new Date(s.to))) + '" style="left:' + pct(s.from) + '%;width:' + Math.max(.3, pct(s.to) - pct(s.from)) + '%"></div>';
+          }).join('') + x.rolls.map(function (t) {
+            return '<div class="r" style="left:' + pct(t.getTime()) + '%"></div>';
+          }).join('') + (isToday ? '<div class="n" style="left:' + pct(now.getTime()) + '%"></div>' : '');
+          var reasons = Object.keys(x.reasons).sort(function (a, b) { return x.reasons[b] - x.reasons[a]; })
+            .filter(function (k) { return x.reasons[k] >= 1; });
           return '<div class="card">' +
             '<div class="card-h"><div class="m-ico">' + svg(phaseIcon(m.phase)) + '</div>' +
-            '<div class="grow"><div class="c-title">' + esc(m.name || m.code) + '</div><div class="c-sub">' + esc(m.code) + ' · ' + x.inDay.length + ' ρολά</div></div>' + pill + '</div>' +
-            '<div class="idle-note"><span class="big' + (!x.blocks.length ? ' dim' : x.idleMin ? '' : ' ok') + '">' + (x.blocks.length ? esc(dur(x.idleMin)) : '—') + '</span>' +
-            '<span>' + (!x.blocks.length ? 'δεν υπάρχει βάρδια στο ημερολόγιο' : x.idleMin ? 'συνολική αδράνεια μέσα στις βάρδιες' : 'συνεχής παραγωγή στις βάρδιες') + '</span></div>' +
-            '<div class="tl" role="img" aria-label="Χρονογραμμή 06:00–06:00: ' + esc(dur(x.idleMin)) + ' αδράνεια">' + bar + '</div>' +
+            '<div class="grow"><div class="c-title">' + esc(m.name || m.code) + '</div><div class="c-sub">' + esc(m.code) +
+              (x.util != null ? ' · αξιοποίηση ' + x.util + '%' : '') + '</div></div>' + pill + '</div>' +
+            '<div class="idle-note"><span class="big' + (!x.blocks.length ? ' dim' : x.idle >= 1 ? '' : ' ok') + '">' + (x.blocks.length ? esc(dur(x.idle)) : '—') + '</span>' +
+            '<span>' + (!x.blocks.length ? 'δεν υπάρχει βάρδια στο ημερολόγιο' : 'αδράνεια μέσα στις βάρδιες<br>(στάσεις + χωρίς εργασία)') + '</span></div>' +
+            '<div class="tl" role="img" aria-label="Χρονογραμμή 06:00–06:00">' + bar + '</div>' +
             '<div class="tl-scale"><span>06</span><span>10</span><span>14</span><span>18</span><span>22</span><span>02</span><span>06</span></div>' +
-            (x.gaps.length ? '<div class="gaps">' + x.gaps.map(function (gp) {
-              return '<span class="gap">' + esc(DateFmt.t(gp[0])) + '–' + esc(DateFmt.t(gp[1])) + ' · ' + esc(dur((gp[1] - gp[0]) / 60000)) + '</span>';
-            }).join('') + '</div>' : '') +
+            (x.blocks.length ? '<div class="gaps">' +
+              '<span class="gap run">Παραγωγή ' + esc(dur(x.tot.run)) + '</span>' +
+              (x.tot.setup >= 1 ? '<span class="gap setup">Setup ' + esc(dur(x.tot.setup)) + '</span>' : '') +
+              reasons.map(function (k) { return '<span class="gap">' + esc(k) + ' ' + esc(dur(x.reasons[k])) + '</span>'; }).join('') +
+            '</div>' : '') +
           '</div>';
         }).join('') + '</div></section>';
       }).join('');
@@ -456,8 +500,11 @@
   async function openOrder(id) {
     openSheet('Εντολή παραγωγής', '', '<div class="empty">Φόρτωση…</div>');
     try {
-      var res = await Promise.all([ds('GetOrderDetails', { findoc: id }), ds('GetProductionRolls', { findoc: id })]);
+      var res = await Promise.all([ds('GetOrderDetails', { findoc: id }), ds('GetProductionRolls', { findoc: id }),
+                                   ds('PmGetOrderStages', { findoc: id })]);
       var o = res[0][0];
+      var stages = res[2].map(function (r) { return { t: parseDate(r.t), info: stageInfo(r.stage, r.line), operator: r.operator, minutes: r.minutes, remarks: r.remarks }; })
+        .filter(function (r) { return r.t; });
       if (!o) { $('pm-sheet-body').innerHTML = empty('Δεν βρέθηκε η εντολή.'); return; }
       var rolls = res[1];
       var total = rolls.reduce(function (s, r) { return s + (parseFloat(r.qty) || 0); }, 0);
@@ -477,6 +524,15 @@
           '<dt>Παραγγελία</dt><dd>' + esc(o.salesOrder || '—') + (o.customerPO ? ' · PO ' + esc(o.customerPO) : '') + '</dd>' +
           (o.remarks ? '<dt>Σχόλια</dt><dd>' + esc(o.remarks) + '</dd>' : '') +
         '</dl>' +
+        (stages.length ? '<div class="sheet-sec">Ιστορικό σταδίων <span>' + stages.length + '</span></div>' +
+          '<table class="table"><thead><tr><th>Ώρα</th><th>Στάδιο</th><th>Χειριστής</th><th class="num">Διάρκεια</th></tr></thead><tbody>' +
+          stages.map(function (r, i) {
+            var next = stages[i + 1], mins = next ? (next.t - r.t) / 60000 : (r.info.cat === 'none' ? null : minsSince(r.t));
+            if (parseFloat(r.minutes) > 0 && !next) mins = parseFloat(r.minutes);
+            return '<tr><td class="mono">' + esc(DateFmt.dm(r.t) + ' ' + DateFmt.t(r.t)) + '</td>' +
+              '<td><span class="sdot ' + r.info.cat + '"></span>' + esc(r.info.name) + (r.remarks && String(r.remarks).trim() ? '<div class="c-sub">' + esc(r.remarks) + '</div>' : '') + '</td>' +
+              '<td>' + esc(r.operator || '') + '</td><td class="num">' + (mins == null ? '' : esc(dur(mins)) + (next ? '' : '…')) + '</td></tr>';
+          }).join('') + '</tbody></table>' : '') +
         '<div class="sheet-sec">Παραγωγή <span>' + num(total) + ' / ' + num(kilos) + ' kg · ' + rolls.length + ' ρολά</span></div>' +
         '<div class="prog" style="margin-top:0"><div class="bar"><i style="width:' + pct + '%"></i></div><span class="pct">' + pct + '%</span></div>' +
         (rolls.length ? '<table class="table" style="margin-top:10px"><thead><tr><th>Ημ/νία</th><th>Lot</th><th class="num">kg</th></tr></thead><tbody>' +
@@ -714,10 +770,6 @@
     $('idle-prev').addEventListener('click', function () { setIdleDay(addDays(state.idleDay, -1)); });
     $('idle-next').addEventListener('click', function () { setIdleDay(addDays(state.idleDay, 1)); });
     $('idle-today').addEventListener('click', function () { setIdleDay(productionDay(new Date())); });
-    $('idle-threshold').addEventListener('click', function (e) {
-      var b = e.target.closest('button'); if (!b) return;
-      state.idleThreshold = parseInt(b.getAttribute('data-min'), 10); seg(this, 'data-min', state.idleThreshold); loadIdle();
-    });
 
     // Searches
     $('orders-form').addEventListener('submit', function (e) { e.preventDefault(); searchOrders(); });
@@ -729,7 +781,7 @@
     $('customers-form').addEventListener('submit', function (e) { e.preventDefault(); searchCustomers(); });
     $('machines-q').addEventListener('input', renderMachines);
 
-    await loadPhaseNames();
+    await Promise.all([loadPhaseNames(), loadStageLines()]);
     loadMachines().catch(function (e) { console.warn('machines:', e); });
     route();
   }
@@ -774,6 +826,37 @@
       order(9007, 'ΕΠΑ0012351', 401, 4001, '81002', 'Σακούλα Doypack', 300, 120, 6, 18, 2, 0, 'ΔΕΛΤΑ ΣΝΑΚ', 'ΠΑΡ0004570', 7003, 'PO-221', 3),
       order(9008, 'ΕΠΑ0012290', 303, 3001, '79700', 'Ρολό κομμένο Η', 400, 400, 20, 200, 0, 1, 'ΒΗΤΑ ΓΑΛΑΚΤΟΚΟΜΙΚΑ', 'ΠΑΡ0004501', 7002, '', -1)
     ];
+    // Stage lines (as at Vlachos: 1 Setup, 2 Παραγωγή, 3 Κλείσιμο Βάρδιας, 4 Χαμ.Χρόνος, 5 Διάλλειμα, 6 Αναμονή Οδηγιών, 7 Ολοκλήρωση)
+    var LINES = [[1, 'Setup', 1], [2, 'Παραγωγή', 2], [3, 'Κλείσιμο Βάρδιας', 3], [4, 'Χαμ.Χρόνος', 3], [5, 'Διάλλειμα', 3],
+                 [6, 'Αναμονή Οδηγιών', 2], [7, 'Ολοκλήρωση Παραγωγής', 3]];
+    var stageLines = [];
+    [1001, 2001, 3001, 4001].forEach(function (st) {
+      LINES.forEach(function (l) { stageLines.push({ stage: st, line: l[0], name: l[1], sostatus: l[2], isLast: l[0] === 7 ? 1 : 0 }); });
+    });
+    // Stage events per machine: [hh, mm, line] relative to the production day start (hh ≥ 24 = next day)
+    var day0 = at(6, 0, now.getHours() < 6 ? -1 : 0);
+    var SCRIPT = {
+      101: [9001, [[6, 5, 1], [6, 50, 2], [10, 0, 5], [10, 25, 2], [13, 30, 4], [14, 15, 2], [18, 0, 5], [18, 30, 2]]],
+      102: [9002, [[6, 10, 2], [9, 40, 7], [10, 5, 1]]],
+      201: [9003, [[6, 0, 2], [9, 0, 4], [10, 10, 2], [12, 0, 5], [12, 30, 2]]],
+      202: [9010, [[-9, 0, 2], [-3, 0, 7]]],
+      203: [9004, [[6, 0, 2], [11, 0, 5], [11, 20, 2]]],
+      301: [9005, [[6, 30, 1], [7, 0, 2], [10, 30, 6], [11, 5, 2]]],
+      302: [9006, [[6, 0, 2], [8, 0, 4], [9, 0, 2]]],
+      303: [9008, [[6, 0, 2], [9, 49, 7]]],
+      401: [9007, [[6, 20, 1], [6, 40, 2], [12, 0, 5], [14, 0, 2]]]
+    };
+    var events = [], evId = 1;
+    Object.keys(SCRIPT).forEach(function (mid) {
+      var fd = SCRIPT[mid][0], st = machines.filter(function (m) { return String(m.id) === mid; })[0].phase;
+      SCRIPT[mid][1].forEach(function (e) {
+        var t = new Date(day0.getTime() + ((e[0] - 6) * 60 + e[1]) * 60000);
+        if (t > now) return;
+        events.push({ id: evId++, machine: +mid, findoc: fd, fincode: 'ΕΠΑ00' + (12345 + fd - 9001), stage: st, line: e[2], t: t,
+                      operator: ['Παπαδόπουλος', 'Γεωργίου', 'Νικολάου', 'Δημητρίου'][mid % 4] });
+      });
+    });
+    function evRow(e) { return Object.assign({}, e, { t: iso(e.t) }); }
     // roll timestamps for the idle overview
     var rollTimes = {};
     var d0 = at(6, 0, now.getHours() < 6 ? -1 : 0), lim = Math.min(now.getTime(), d0.getTime() + 86400000);
@@ -797,11 +880,18 @@
         switch (name) {
           case 'GetPhaseMachines': return machines.map(function (m) { return { machine: m.id, phase: m.phase, phaseName: m.phaseName }; });
           case 'PmGetMachineList': return machines.map(function (m) { return Object.assign({}, m); });
-          case 'PmGetRunningJobs': return orders.filter(function (o) { return o.status !== 1 && (o.stageLine === 1 || o.stageLine === 2); });
-          case 'PmGetMachineStatus': return machines.filter(function (m) { return m.isActive; }).map(function (m) {
-            var r = rollTimes[m.id] || [], last = r[r.length - 1];
-            return { id: m.id, code: m.code, name: m.name, phase: m.phase, lastRoll: last ? iso(last) : null, lastFincode: last ? 'ΕΠΑ00122' + (m.id % 100) : null };
+          case 'PmGetStageLines': return stageLines;
+          case 'PmGetMachineNow': return machines.filter(function (m) { return m.isActive; }).map(function (m) {
+            var ev = events.filter(function (e) { return e.machine === m.id; }).sort(function (a, b) { return b.t - a.t; })[0];
+            var o = ev && orders.filter(function (x) { return x.id === ev.findoc; })[0];
+            return Object.assign({ id: m.id, code: m.code, name: m.name, phase: m.phase },
+              ev ? { findoc: ev.findoc, stage: ev.stage, line: ev.line, since: iso(ev.t), operator: ev.operator, fincode: ev.fincode } : {},
+              o ? { fincode: o.fincode, itemCode: o.itemCode, itemName: o.itemName, kilos: o.kilos, plannedEnd: o.plannedEnd, status: o.status,
+                    salesOrder: o.salesOrder, customer: o.customer, rolls: o.rolls, producedQty: o.producedQty, lastRoll: o.lastRoll } : {});
           });
+          case 'PmGetStageEvents': return p.day === DateFmt.toIso(day0) ? events.map(evRow) : [];
+          case 'PmGetOrderStages': return events.filter(function (e) { return String(e.findoc) === String(p.findoc); })
+            .sort(function (a, b) { return a.t - b.t; }).map(evRow);
           case 'PmGetTodayProduction': return Object.keys(rollTimes).map(function (k) {
             return { machine: +k, rolls: rollTimes[k].length, kg: rollTimes[k].length * (k.charAt(0) === '3' ? 22 : 78) };
           });
@@ -853,5 +943,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  global.ProductionApp = { state: state, _idleGaps: idleGaps, _shiftBlocks: shiftBlocks };
+  global.ProductionApp = { state: state, _stateSegments: stateSegments, _shiftBlocks: shiftBlocks };
 })(window);

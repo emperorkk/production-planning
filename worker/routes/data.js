@@ -24,8 +24,10 @@ const DATASETS = {
 
 // «Διαχείριση παραγωγής» (production.html) datasets — allowed for both access levels.
 const PRODUCTION_DATASETS = {
-  PmGetRunningJobs:      [],
-  PmGetMachineStatus:    [],
+  PmGetStageLines:       [],
+  PmGetMachineNow:       [],
+  PmGetStageEvents:      ['day'],
+  PmGetOrderStages:      ['findoc'],
   PmGetMachineActivity:  ['day'],
   PmGetTodayProduction:  [],
   PmGetMachineList:      [],

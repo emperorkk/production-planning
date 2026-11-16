@@ -30,9 +30,10 @@
 //   SaveCalendarWeek      monday, lines:[{rsrc, s:'21 chars 0/1 (S11..S73)'}] → { success, updated, inserted }
 //   FillMissingWeeks      from, to (≤ 26 weeks)   → { success, created:[codes], skipped:[codes] }
 // Διαχείριση παραγωγής (production.html — mobile web app; Pm* = production management):
-//   PmGetRunningJobs                              orders running now (STAGELINENUM 1 setup / 2 production,
-//                                                 or a roll in the last 2 h) + progress + operator
-//   PmGetMachineStatus                            active machines + last roll time / order
+//   PmGetStageLines                               stage detail lines {stage, line, name, sostatus, isLast}
+//   PmGetMachineNow                               active machines + latest CCCFXPRDOSTAGE event + that order's progress
+//   PmGetStageEvents      day (YYYY-MM-DD)        stage events per machine for the production day (+ state carried in)
+//   PmGetOrderStages      findoc                  stage history of one production order
 //   PmGetMachineActivity  day (YYYY-MM-DD)        roll timestamps per machine, day 06:00 → next day 06:00 (+ margin)
 //   PmGetTodayProduction                          kg + rolls per machine since the production day began (06:00)
 //   PmGetMachineList                              RSRC editable values (setup, wait, speed, active, remarks)
@@ -742,35 +743,95 @@ function _pmOrderSelect()
         " WHERE F.SOSOURCE = 5171 AND F.COMPANY = " + company();
 }
 
-function PmGetRunningJobs(Prms)
+// ── Production stage events (CCCFXPRDOSTAGE) ───────────────────────────────
+// One row per state change a worker records on a production order:
+//   CCCFXPRDOSTAGE (id), FINDOC, STAGE, STAGELINENUM, INSGRPOUP, INSUSER, INSDATE, REMARKS, PCNAME,
+//   TIMEDIF (minutes, filled when the job closes).
+// STAGELINENUM = LINENUM of the stage's detail lines (Setup, Παραγωγή, Διάλλειμα, Χαμ.Χρόνος, …)
+// with SOSTATUS 1 = setup, 2 = production/working, 3 = stopped; the stage's last line = completion.
+// The current state of a machine = its latest event (machine = FINDOC.CCCFXRSRC of the event's order).
+var STAGE_LINES_TABLE = 'STAGELINES';      // ← detail table of STAGE (confirm the name at Vlachos)
+
+function _operator(alias)
 {
- if (!checkClientId(Prms)) return responseError();
- var sql = _pmOrderSelect();
- sql = sql.replace(" FROM FINDOC F",
-   ", (SELECT TOP 1 U.NAME FROM CCCFXPRDOSTAGE G LEFT OUTER JOIN USERS U ON U.USERS = G.INSUSER" +
-   "   WHERE G.FINDOC = F.FINDOC ORDER BY G.INSDATE DESC) AS operator" +
-   " FROM FINDOC F");
- return sqlRows(sql +
-   " AND D.MTRSTS <> 1" +
-   " AND (L0.STAGELINENUM IN (1, 2) OR P.lastRoll >= DATEADD(HOUR, -2, GETDATE()))" +
-   " ORDER BY machineName, F.FINDOC");
+ return "(SELECT NAME FROM USERS WHERE USERS = " + alias + ".INSUSER)";
 }
 
-function PmGetMachineStatus(Prms)
+// Stage detail lines → { stage, line, name, sostatus, isLast }
+function PmGetStageLines(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ return sqlRows(
+   "SELECT T.STAGE AS stage, T.LINENUM AS line, T.NAME AS name, T.SOSTATUS AS sostatus" +
+   ", CASE WHEN T.LINENUM = (SELECT MAX(X.LINENUM) FROM " + STAGE_LINES_TABLE + " X" +
+   "   WHERE X.COMPANY = T.COMPANY AND X.STAGE = T.STAGE) THEN 1 ELSE 0 END AS isLast" +
+   " FROM " + STAGE_LINES_TABLE + " T WHERE T.COMPANY = " + company() +
+   " ORDER BY T.STAGE, T.LINENUM");
+}
+
+// Every active machine + its latest stage event (≤ 14 days) + that order's progress
+function PmGetMachineNow(Prms)
 {
  if (!checkClientId(Prms)) return responseError();
  return sqlRows(
    "SELECT R.RSRC AS id, R.CODE AS code, R.NAME AS name, R.CCCFXSTAGE AS phase" +
-   ", A.lastRoll, A.lastFindoc" +
-   ", (SELECT FINCODE FROM FINDOC WHERE FINDOC = A.lastFindoc) AS lastFincode" +
+   ", E.findoc, E.stage, E.line, E.since, E.operator" +
+   ", F.FINCODE AS fincode, M.CODE AS itemCode, M.NAME AS itemName" +
+   ", L0.QTY1 AS kilos, L0.DATE02 AS plannedEnd, D.MTRSTS AS status" +
+   ", S.FINCODE AS salesOrder, (SELECT NAME FROM TRDR WHERE TRDR = S.TRDR) AS customer" +
+   ", P.rolls, P.producedQty, P.lastRoll" +
    " FROM RSRC R" +
-   " OUTER APPLY (SELECT TOP 1 ISNULL(T.INSDATE, PP.TRNDATE) AS lastRoll, PP.FINDOC AS lastFindoc" +
-   "   FROM CCCFXPRDOPRD PP INNER JOIN FINDOC F ON F.FINDOC = PP.FINDOC" +
-   "   LEFT OUTER JOIN MTRLOT T ON T.MTRLOT = PP.MTRLOT" +
-   "   WHERE F.CCCFXRSRC = R.RSRC AND F.COMPANY = R.COMPANY AND PP.TRNDATE >= GETDATE() - 30" +
-   "   ORDER BY ISNULL(T.INSDATE, PP.TRNDATE) DESC) A" +
+   " OUTER APPLY (SELECT TOP 1 G.FINDOC AS findoc, G.STAGE AS stage, G.STAGELINENUM AS line" +
+   "   , G.INSDATE AS since, " + _operator('G') + " AS operator" +
+   "   FROM CCCFXPRDOSTAGE G INNER JOIN FINDOC GF ON GF.FINDOC = G.FINDOC" +
+   "   WHERE GF.CCCFXRSRC = R.RSRC AND GF.COMPANY = R.COMPANY AND G.INSDATE >= GETDATE() - 14" +
+   "   ORDER BY G.INSDATE DESC, G.CCCFXPRDOSTAGE DESC) E" +
+   " LEFT OUTER JOIN FINDOC F ON F.FINDOC = E.findoc" +
+   " LEFT OUTER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
+   " LEFT OUTER JOIN MTRLINES L0 ON L0.FINDOC = F.FINDOC AND L0.MTRTYPE = 1" +
+   " LEFT OUTER JOIN FINDOC S ON S.FINDOC = L0.FINDOCS" +
+   " LEFT OUTER JOIN MTRL M ON M.MTRL = L0.MTRL" +
+   _prodApply() +
    " WHERE R.SODTYPE = 25 AND R.RSRCTYPE < 50 AND R.ISACTIVE = 1 AND R.COMPANY = " + company() +
    " ORDER BY R.CODE");
+}
+
+// Stage events for the production day `day` (06:00 → 06:00; fetched day−1 … day+2)
+// + per machine the last event before that window (state carried into the day).
+function PmGetStageEvents(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isIsoDate(Prms.day)) return responseError("day must be YYYY-MM-DD");
+ var d = "'" + Prms.day.replace(/-/g, '') + "'";
+ var cols = "G.CCCFXPRDOSTAGE AS id, G.FINDOC AS findoc, GF.FINCODE AS fincode, G.STAGE AS stage" +
+            ", G.STAGELINENUM AS line, G.INSDATE AS t, " + _operator('G') + " AS operator";
+ return sqlRows(
+   "SELECT GF.CCCFXRSRC AS machine, " + cols +
+   " FROM CCCFXPRDOSTAGE G INNER JOIN FINDOC GF ON GF.FINDOC = G.FINDOC" +
+   " WHERE GF.COMPANY = " + company() +
+   " AND G.INSDATE >= DATEADD(DAY, -1, " + d + ") AND G.INSDATE < DATEADD(DAY, 2, " + d + ")" +
+   " UNION ALL" +
+   " SELECT R.RSRC AS machine, X.id, X.findoc, X.fincode, X.stage, X.line, X.t, X.operator" +
+   " FROM RSRC R CROSS APPLY (SELECT TOP 1 " + cols +
+   "   FROM CCCFXPRDOSTAGE G INNER JOIN FINDOC GF ON GF.FINDOC = G.FINDOC" +
+   "   WHERE GF.CCCFXRSRC = R.RSRC AND GF.COMPANY = R.COMPANY" +
+   "   AND G.INSDATE < DATEADD(DAY, -1, " + d + ") AND G.INSDATE >= DATEADD(DAY, -30, " + d + ")" +
+   "   ORDER BY G.INSDATE DESC, G.CCCFXPRDOSTAGE DESC) X" +
+   " WHERE R.SODTYPE = 25 AND R.RSRCTYPE < 50 AND R.COMPANY = " + company() +
+   " ORDER BY machine, t, id");
+}
+
+// Stage history of one production order (order sheet)
+function PmGetOrderStages(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isInt(Prms.findoc)) return responseError("findoc must be an integer");
+ return sqlRows(
+   "SELECT G.CCCFXPRDOSTAGE AS id, G.STAGE AS stage, G.STAGELINENUM AS line, G.INSDATE AS t" +
+   ", " + _operator('G') + " AS operator, G.TIMEDIF AS minutes, G.REMARKS AS remarks, G.PCNAME AS pc" +
+   " FROM CCCFXPRDOSTAGE G INNER JOIN FINDOC F ON F.FINDOC = G.FINDOC" +
+   " WHERE F.COMPANY = " + company() + " AND G.FINDOC = " + parseInt(Prms.findoc, 10) +
+   " ORDER BY G.INSDATE, G.CCCFXPRDOSTAGE");
 }
 
 function PmGetMachineActivity(Prms)

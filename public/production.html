@@ -109,14 +109,12 @@
             <button id="idle-next" class="icon-btn" type="button" aria-label="Επόμενη ημέρα"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
             <button id="idle-today" class="btn" type="button">Σήμερα</button>
           </div>
-          <div class="seg" role="radiogroup" aria-label="Όριο αδράνειας" id="idle-threshold">
-            <button type="button" role="radio" data-min="15" aria-checked="false">15′</button>
-            <button type="button" role="radio" data-min="30" class="on" aria-checked="true">30′</button>
-            <button type="button" role="radio" data-min="60" aria-checked="false">1ω</button>
-            <button type="button" role="radio" data-min="120" aria-checked="false">2ω</button>
+          <div class="legend" aria-label="Υπόμνημα">
+            <span><i class="lg run"></i>Παραγωγή</span><span><i class="lg setup"></i>Setup</span>
+            <span><i class="lg stop"></i>Στάση</span><span><i class="lg shift"></i>Βάρδια χωρίς εργασία</span>
           </div>
         </div>
-        <p class="hint">Αδράνεια = διάστημα μέσα σε βάρδια χωρίς καταγραφή ρολού, μεγαλύτερο από το όριο. Ημέρα παραγωγής 06:00 → 06:00.</p>
+        <p class="hint">Από το ιστορικό σταδίων των εντολών (CCCFXPRDOSTAGE). Αδράνεια = στάσεις (διάλειμμα, χαμένος χρόνος, κλείσιμο βάρδιας…) + χρόνος χωρίς εργασία, μέσα στις βάρδιες. Ημέρα παραγωγής 06:00 → 06:00.</p>
         <div id="idle-list"></div>
       </section>
 

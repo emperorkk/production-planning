@@ -198,8 +198,10 @@ Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload
 | `CreateCalendarWeek` | `monday`, `copy` ('previous'\|'none') | `{ success, id, code, copiedFrom }` |
 | `SaveCalendarWeek` | `monday`, `lines:[{rsrc, s:'21×0/1'}]` | `{ success, updated, inserted, errors[] }` |
 | `FillMissingWeeks` | `from`, `to` (Mondays, ≤26 weeks) | `{ success, created[], skipped[], errors[] }` |
-| `PmGetRunningJobs` | — | open orders with `STAGELINENUM` 1 (setup) / 2 (production) or a roll in the last 2 h; progress, last roll, operator (latest `CCCFXPRDOSTAGE.INSUSER`) |
-| `PmGetMachineStatus` | — | active machines + last roll time / order |
+| `PmGetStageLines` | — | stage detail lines `{stage, line, name, sostatus, isLast}` (table `STAGE_LINES_TABLE` in the AJS — confirm name) |
+| `PmGetMachineNow` | — | active machines + latest `CCCFXPRDOSTAGE` event (≤14 d) + that order's progress |
+| `PmGetStageEvents` | `day` | stage events per machine for the production day (+ last event before it per machine) |
+| `PmGetOrderStages` | `findoc` | stage history of one order (time, line, operator, TIMEDIF, remarks, PC) |
 | `PmGetMachineActivity` | `day` | roll timestamps per machine (day −1 … +2; client keeps 06:00→06:00) |
 | `PmGetTodayProduction` | — | per machine `{machine, rolls, kg}` since the production day began (06:00) — totals row |
 | `PmGetMachineList` | — | RSRC id, code, name, isActive, setupTime, waitTime, speed, phase, phaseName, remarks |
@@ -207,7 +209,9 @@ Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload
 | `PmSearchCustomerOrders` | `q`, `limit` ≤200 | sales orders `SOSOURCE=1351` that have production orders + counts |
 | `PmGetCustomerOrder` | `findoc` | production orders of one sales order |
 
-Pm* roll time = `MTRLOT.INSDATE` (the scale's `setStock` creates one MTRLOT per roll), fallback `CCCFXPRDOPRD.TRNDATE`.
+Pm* roll time = `MTRLOT.INSDATE` (the scale's `setStock` creates one MTRLOT per roll), fallback `CCCFXPRDOPRD.TRNDATE` — **except slitting (3xxx)**: rolls are weighed after production, so their time is weighing time (UI says «Τελ. ζύγιση», no roll ticks on the idle timeline).
+
+**Machine state = stage events (`CCCFXPRDOSTAGE`)**: one row per state change recorded by the shop floor — `CCCFXPRDOSTAGE` (id), `FINDOC`, `STAGE`, `STAGELINENUM`, `INSGRPOUP`, `INSUSER`, `INSDATE`, `REMARKS`, `PCNAME` (terminal), `TIMEDIF` (minutes, filled when the job closes). `STAGELINENUM` = `LINENUM` of the stage's detail lines (company 1000: 1 Setup, 2 Παραγωγή, 3 Κλείσιμο Βάρδιας, 4 Χαμ.Χρόνος, 5 Διάλλειμα, 6 Αναμονή Οδηγιών, 7 Ολοκλήρωση Παραγωγής; stage 900 is numbered differently, 6001 has one line). Category from `SOSTATUS`: 1 = setup, 2 = production/working, 3 = stop; the stage's **last line = completion → «Χωρίς εργασία»**. Machine = `FINDOC.CCCFXRSRC` of the event's order. Idle view: segments between events, intersected with the shift calendar → production / setup / stops by reason / no job; utilisation = production ÷ elapsed shift time.
 
 Implementation notes:
 - **ES3 only** (Soft1 JS engine): no `JSON.parse`, arrow functions, `Array.isArray`; dataset → rows via `eval(ds.JSON)`; iterate datasets with `ds.FIRST; while(!ds.EOF){…; ds.NEXT;}`; field by name `ds[name]`.
@@ -270,8 +274,8 @@ Implementation notes:
 
 **Διαχείριση παραγωγής (`production.html`)** — §6b
 - Mobile-first; header (burger · logo · title · ↻), drawer menu: Τρέχουσες παραγωγές · Αδράνεια μηχανών · Εντολές παραγωγής · Παραγγελίες πελατών · Μηχανές · (shell) switcher to planner (desktop + full only) · 🔑 · Έξοδος · «Εγκατάσταση εφαρμογής» (beforeinstallprompt; iOS/other → instructions).
-- Running: card per machine (job: setup/production badge, progress kg/%, rolls, last roll, operator, planned end; machines without job = «Χωρίς εργασία»). Auto-refresh 60 s.
-- Idle: day picker (dd/mm/yyyy) + threshold 15/30/60/120'. Production day 06:00→06:00; shift windows from `GetShifts` (1=06–14, 2=14–22, 3=22–06); idle = gap without a roll inside a shift longer than the threshold (up to now). Timeline bar per machine. Notifications: later.
+- Running: one card per active machine, grouped by phase; state pill = current stage line name (Παραγωγή / Setup / Διάλλειμα …) since HH:MM + operator; current order + progress. KPIs: σε παραγωγή / setup / στάση / χωρίς εργασία / kg σήμερα.
+- Idle: day picker (dd/mm/yyyy). Production day 06:00→06:00; shift windows from `GetShifts` (1=06–14, 2=14–22, 3=22–06). Timeline per machine coloured by stage state (green production, amber setup, red stop, grey shift without work), chips with time per reason, utilisation %. Notifications: later.
 - Orders: search (fincode, item, customer, sales order, PO) + status chips + machine filter → order sheet (`GetOrderDetails` + rolls). Customers: search sales orders → their production orders.
 - Machines: list + edit sheet (setup, wait, speed, active, remarks) → `/api/machine` → native setData RSRC.
 - **Design system** (v0.8): light / dark / system theme (`src/theme.js`, `html[data-theme]`, stored in `localStorage pp-theme`; header ☾/☀ toggle + menu segment). Neutral zinc base, Vlachos red only as accent (light `#dc1f2b`, dark `#f0444e`); status green/amber/red/grey with soft tints. Inter (Greek) + JetBrains Mono for codes/times (Google Fonts). Sidebar ≥1024px, drawer on phones, bottom sheets, totals row (in production / setup / idle / kg today), machines grouped by phase (Vlachos: 2 printing, 3 laminating, 4 slitters, 1 bagger). Tokens at the top of `src/production.css`; login page uses the same CSS. Planner keeps its own look (decision: not restyled).
