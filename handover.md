@@ -1,7 +1,7 @@
 # HANDOVER — Production Planning (Vlachos Bros)
 
 > Read this first. It contains everything a new chat session needs to pick up where the previous one left off.
-> **Current version: v0.6.0** (live on `main`, last updated 2026-11-16). Short rules for agents are in `CLAUDE.md`.
+> **Current version: v0.7.0** (live on `main`, last updated 2026-11-16). Short rules for agents are in `CLAUDE.md`.
 
 ---
 
@@ -21,6 +21,7 @@ planner    ──/api/data {dataset}──▶ whitelist → /JS/Foxline.planning
            ──/api/save {orders}──▶ shape check → …/SaveSchedule
            ──/api/calendar {…}───▶ action whitelist → …/Get|Create|Save…CalendarWeek, FillMissingWeeks
            ──/api/record {RSRC}──▶ native getData (OBJECT=RSRC, fixed LOCATEINFO)
+           ──/api/change-password ─▶ native changePassword {clientID, appId, OLD, NEW}
            ──/api/me, /api/version, /api/logout
 ```
 
@@ -72,7 +73,7 @@ worker/
 ├── session.js                    ← KV sessions (random 256-bit id, 8 h TTL), HttpOnly cookie pp_sid
 ├── version.js                    ← VERSION from package.json
 └── routes/
-    ├── auth.js                   ← /api/login, /api/logout, /api/me (+ expiresAt)
+    ├── auth.js                   ← /api/login, /api/logout, /api/me (+ expiresAt), /api/change-password
     ├── data.js                   ← /api/data (DATASETS whitelist + params), /api/save (validOrder)
     ├── record.js                 ← /api/record (RECORDS whitelist: RSRC + LOCATEINFO)
     └── calendar.js               ← /api/calendar (ACTIONS: get | weeks | create | save | fill)
@@ -201,6 +202,7 @@ Implementation notes:
 | 0.5.0 | Production progress from `CCCFXPRDOPRD` (block progress bar + rolls, order card lots) |
 | 0.5.1 | European dates `dd/mm/yyyy` everywhere (`date-fmt.js`, text date inputs) |
 | 0.6.0 | Auto-place creates the missing calendar week from the previous one before planning |
+| 0.7.0 | Change password (🔑 next to Έξοδος) via native Soft1 `changePassword` |
 
 ### Status
 - ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
@@ -221,7 +223,8 @@ Implementation notes:
 ## 6. Features & UX (what the user sees)
 
 **Planner (`production-planner.html`)**
-- Toolbar: ← week label (click = date picker) → · Σήμερα · ↶ ↷ undo/redo · zoom − + · ⚙ Αυτόματο · provisional pill + «Σε Soft1» · 📅 calendar · 🖨 print · Excel · Αποθήκευση · Έξοδος. Keys: ←/→ week, Ctrl+Z/Ctrl+Y, Ctrl+S.
+- Toolbar: ← week label (click = date picker) → · Σήμερα · ↶ ↷ undo/redo · zoom − + · ⚙ Αυτόματο · provisional pill + «Σε Soft1» · 📅 calendar · 🖨 print · Excel · Αποθήκευση · 🔑 change password · Έξοδος.
+- 🔑 opens a dialog (current / new / confirm) → `/api/change-password` → Soft1 `changePassword` with the session clientID + appId; Soft1 errors shown in the dialog; the session stays valid. Passwords are never logged. Keys: ←/→ week, Ctrl+Z/Ctrl+Y, Ctrl+S.
 - Banners: unsaved changes; **missing calendar week** (create from previous / empty / open calendar); **session expires ≤10'** (re-login keeps the draft).
 - Unscheduled panel: count badge, search (Enter = jump to block on Gantt + highlight), ⚙ filters (phase, delivery from/to dd/mm/yyyy, late only, pre-assigned only, sort). Click a card = order card; drag = schedule.
 - Drag & drop: ghost shows the shift-aware span (green = combined run without setup, red = past the week's shifts); ineligible machine → refused; overlap → refused with toast naming the collider; magnet to previous block within 30'.

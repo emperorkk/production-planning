@@ -124,6 +124,7 @@ npm run sync-embedded-legacy
 
 - No SQL crosses the wire. `/api/data` only forwards whitelisted dataset names + params; each AJS function validates its params (dates, ints) and takes the company from `X.SYS.COMPANY`. Any Soft1 user can call the AJS endpoint directly, so the AJS checks are the real boundary.
 - `/api/save` accepts structured orders only. `Foxline.planning/SaveSchedule` builds the UPDATEs itself, validates types, and refuses completed (`MTRSTS=1`), foreign-company or non-5171 documents.
+- `/api/change-password` calls the native Soft1 `changePassword` (session clientID + appId); passwords are never logged or stored.
 - Session cookies are `HttpOnly; Secure; SameSite=Lax`. Real session body lives in KV, so logout deletes it server-side.
 - The Soft1 `clientID` never leaves the Worker; the browser only sees an opaque session id.
 

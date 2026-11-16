@@ -1,6 +1,6 @@
 {
   "name": "production-planning",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Production scheduling planner for Vlachos Bros — Cloudflare Worker + static assets + Soft1 AJS web service (Foxline.planning).",
   "private": true,
   "scripts": {

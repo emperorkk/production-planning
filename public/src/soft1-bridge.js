@@ -209,6 +209,19 @@
       return _webCalendar(action, body || {});
     },
 
+    // Native Soft1 changePassword (web user) via /api/change-password
+    changePassword: async function (oldPw, newPw) {
+      if (MODE === 'mock') return true;
+      const res = await fetch('/api/change-password', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ old: oldPw, new: newPw })
+      });
+      if (res.status === 401) { window.location.replace('/login.html'); throw new Error('Session expired'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      return true;
+    },
+
     get expiresAt() { return MODE === 'web' ? _webSession.expiresAt : null; },
 
     // Batched write of planner results.

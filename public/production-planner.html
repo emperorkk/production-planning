@@ -65,6 +65,7 @@
     <button id="btn-print" class="btn btn-print" title="Εκτύπωση προγράμματος ανά μηχανή/βάρδια">&#128424;</button>
     <button id="btn-export" class="btn btn-export">&#8595; Excel</button>
     <button id="btn-save"   class="btn btn-save" disabled>&#10003; Αποθήκευση</button>
+    <button id="btn-password" class="btn btn-zoom" style="display:none; margin-left:6px;" title="Αλλαγή κωδικού πρόσβασης">&#128273;</button>
     <button id="btn-logout" class="btn" style="display:none; margin-left:6px;" title="Αποσύνδεση">&#x21AA; Έξοδος</button>
   </div>
 
@@ -192,6 +193,28 @@
     <div class="modal-footer">
       <button id="btn-shift-cancel" class="btn btn-cancel">Άκυρο</button>
       <button id="btn-shift-save" class="btn btn-confirm">Αποθήκευση</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change-password modal (native Soft1 changePassword) -->
+<div id="pw-backdrop" class="modal-backdrop-generic">
+  <div class="modal-dialog">
+    <div class="modal-header">&#128273; Αλλαγή κωδικού πρόσβασης</div>
+    <form id="pw-form" class="modal-body" autocomplete="on">
+      <input type="text" name="username" id="pw-user" autocomplete="username" hidden />
+      <label>Τρέχων κωδικός</label>
+      <input id="pw-old" type="password" autocomplete="current-password" required />
+      <label>Νέος κωδικός</label>
+      <input id="pw-new" type="password" autocomplete="new-password" required />
+      <label>Επιβεβαίωση νέου κωδικού</label>
+      <input id="pw-new2" type="password" autocomplete="new-password" required />
+      <div id="pw-error" class="pw-error"></div>
+      <div class="hint">Ο κωδικός αλλάζει στο Soft1 (Web Account). Η τρέχουσα σύνδεση παραμένει ενεργή.</div>
+    </form>
+    <div class="modal-footer">
+      <button id="btn-pw-cancel" class="btn btn-cancel" type="button">Άκυρο</button>
+      <button id="btn-pw-save" class="btn btn-confirm" type="submit" form="pw-form">Αλλαγή</button>
     </div>
   </div>
 </div>

@@ -8,6 +8,7 @@
  *   POST /api/login         → Soft1 Web Services login + authenticate, set session
  *   POST /api/logout        → clear session
  *   GET  /api/me            → whoami
+ *   POST /api/change-password → native Soft1 changePassword (session clientID)
  *   GET  /api/version       → { version } (public)
  *   POST /api/data          → named dataset via Foxline.planning/<Get...>
  *   POST /api/record        → native Soft1 getData (whitelisted objects: RSRC)
@@ -15,7 +16,7 @@
  *   POST /api/save          → write schedule via Foxline.planning/SaveSchedule
  */
 
-import { handleLogin, handleLogout, handleMe } from './routes/auth.js';
+import { handleLogin, handleLogout, handleMe, handleChangePassword } from './routes/auth.js';
 import { handleData, handleSave }              from './routes/data.js';
 import { handleRecord }                        from './routes/record.js';
 import { handleCalendar }                      from './routes/calendar.js';
@@ -43,6 +44,7 @@ export default {
       if (path === '/api/login')  return handleLogin(request, env);
       if (path === '/api/logout') return handleLogout(request, env);
       if (path === '/api/me')     return handleMe(request, env);
+      if (path === '/api/change-password') return handleChangePassword(request, env);
       if (path === '/api/data')   return handleData(request, env);
       if (path === '/api/record') return handleRecord(request, env);
       if (path === '/api/calendar') return handleCalendar(request, env);

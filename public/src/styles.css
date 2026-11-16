@@ -993,3 +993,8 @@ input, button, select, textarea {
 
 /* European date text inputs (DateFmt.bind) */
 .date-input.date-bad { border-color: #e74c3c !important; background: #fdecea; }
+
+/* ── Change-password modal ───────────────────────────────────────────────── */
+.modal-backdrop-generic { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 99990; }
+.modal-backdrop-generic.visible { display: flex; }
+.pw-error { color: #b91c1c; font-size: 12px; min-height: 16px; margin-top: 8px; }

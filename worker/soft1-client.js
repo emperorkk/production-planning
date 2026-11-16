@@ -154,6 +154,21 @@ export async function getRecord(env, clientID, object, key, locateinfo) {
 }
 
 /**
+ * Native S1Services changePassword — changes the web user's login password.
+ *   { service:'changePassword', clientID, appId, OLD, NEW } → { success: true }
+ */
+export async function changePassword(env, clientID, oldPassword, newPassword) {
+  await callService(env, {
+    service:  'changePassword',
+    clientID,
+    appId:    env.SOFT1_APP_ID,
+    OLD:      oldPassword,
+    NEW:      newPassword
+  });
+  return true;
+}
+
+/**
  * Validate a clientID is still alive.
  */
 export async function pingSession(env, clientID) {
