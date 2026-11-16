@@ -86,8 +86,8 @@
       <input id="order-search" type="text" placeholder="&#128269; Αναζήτηση (Enter = εντοπισμός στο Gantt)…" autocomplete="off" />
       <div id="filter-box" hidden>
         <select id="f-phase"><option value="">Όλες οι φάσεις</option></select>
-        <div class="f-row"><label>Παράδοση από</label><input id="f-from" type="date" /></div>
-        <div class="f-row"><label>έως</label><input id="f-to" type="date" /></div>
+        <div class="f-row"><label>Παράδοση από</label><input id="f-from" type="text" class="date-input" /></div>
+        <div class="f-row"><label>έως</label><input id="f-to" type="text" class="date-input" /></div>
         <label class="f-chk"><input id="f-late" type="checkbox" /> Μόνο εκπρόθεσμες</label>
         <label class="f-chk"><input id="f-pre" type="checkbox" /> Μόνο με προ-ανάθεση μηχανής</label>
         <div class="f-row"><label>Ταξινόμηση</label>
@@ -161,7 +161,7 @@
         <label><input type="radio" name="shift-mode" value="prov" /> Προσωρινή (μόνο πλάνο)</label>
       </div>
       <label>Ημερομηνία</label>
-      <input id="shift-date" type="date" />
+      <input id="shift-date" type="text" class="date-input" />
 
       <label>Μηχανή</label>
       <select id="shift-group"></select>
@@ -201,6 +201,7 @@
      Save as: src/lib/xlsx.min.js -->
 <script src="src/lib/xlsx.min.js"></script>
 
+<script src="src/date-fmt.js"></script>
 <script src="src/soft1-bridge.js"></script>
 <script src="src/data-service.js"></script>
 <script src="src/work-time.js"></script>

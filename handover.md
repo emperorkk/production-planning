@@ -347,6 +347,7 @@ git push origin main      # schannel SSL required: git config --global http.sslB
 - **Terse responses** — short status, no trailing summaries unless asked
 - **Ask before major refactors** — the user says "Provide feedback before moving on to making any changes" when a design question is on the table; honour that pattern
 - **User edits SQL queries manually** (now in `soft1/Foxline.planning.js`) — they'll paste updated queries in chat, often with inline tweaks (e.g. adding `ISNULL(LS.DELIVDATE, L0.DELIVDATE)` or correcting `A.RSRC` → `L.RSRC`); apply their exact SQL rather than rewriting it
+- **Dates always European `dd/mm/yyyy`** (times 24h `HH:MM`) — use `public/src/date-fmt.js` (`DateFmt.d / dt / parse / euToIso / bind`); never `toLocaleDateString` or `<input type="date">` for visible fields (browser locale shows mm/dd/yyyy). Internally keep Date / ISO.
 - **Greek UI labels throughout** (Πρόγραμμα Παραγωγής, Μη Προγραμματισμένες, Αυτόματο, Έξοδος, etc.)
 - **One file-naming quirk:** `xlsx.mini.min.js` had to be renamed to `xlsx.min.js` to match the HTML reference
 

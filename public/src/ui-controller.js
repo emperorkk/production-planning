@@ -166,10 +166,7 @@
   }
   function _weekLabel(weekStart, weekEnd) {
     var days = ['Κυρ','Δευ','Τρι','Τετ','Πεμ','Παρ','Σαβ'];
-    var months = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
-    return days[weekStart.getDay()] + ' ' + weekStart.getDate() + ' ' + months[weekStart.getMonth()] +
-           ' – ' + days[weekEnd.getDay()] + ' ' + weekEnd.getDate() + ' ' + months[weekEnd.getMonth()] +
-           ' ' + weekEnd.getFullYear();
+    return days[weekStart.getDay()] + ' ' + DateFmt.d(weekStart) + ' – ' + days[weekEnd.getDay()] + ' ' + DateFmt.d(weekEnd);
   }
   function _setWeek(newStart) {
     state.weekStart = newStart;
@@ -500,10 +497,11 @@
   function _bindFilters() {
     if (!els.filterBox) return;
     els.btnFilters.addEventListener('click', function () { els.filterBox.hidden = !els.filterBox.hidden; });
+    DateFmt.bind(els.fFrom); DateFmt.bind(els.fTo);
     function apply() {
       _filters.phase = els.fPhase.value;
-      _filters.from  = els.fFrom.value || null;
-      _filters.to    = els.fTo.value || null;
+      _filters.from  = DateFmt.euToIso(els.fFrom.value) || null;
+      _filters.to    = DateFmt.euToIso(els.fTo.value) || null;
       _filters.late  = els.fLate.checked;
       _filters.pre   = els.fPre.checked;
       _filters.sort  = els.fSort.value;
@@ -808,7 +806,7 @@
         e.preventDefault();
         e.stopPropagation();
         var m = state.machineById[band.dataset.machineId];
-        if (!confirm('Αφαίρεση βάρδιας ' + band.dataset.realShift + ' (' + band.dataset.shiftDay + ') της μηχανής ' +
+        if (!confirm('Αφαίρεση βάρδιας ' + band.dataset.realShift + ' (' + DateFmt.isoToEu(band.dataset.shiftDay) + ') της μηχανής ' +
                      (m ? m.name : band.dataset.machineId) + ' από το Soft1;')) return;
         _setSoft1Shifts(band.dataset.machineId, band.dataset.shiftDay, function (cur) {
           cur[+band.dataset.realShift - 1] = 0; return cur;
@@ -818,7 +816,7 @@
       if (band.classList && band.classList.contains('shift-band') && band.dataset.provisional === '1') {
         e.preventDefault();
         e.stopPropagation();
-        if (confirm('Αφαίρεση προσωρινής βάρδιας ' + band.dataset.shiftStart + '–' + band.dataset.shiftEnd + ';')) {
+        if (confirm('Αφαίρεση προσωρινής βάρδιας ' + DateFmt.isoToEu(band.dataset.shiftDate) + ' ' + band.dataset.shiftStart + '–' + band.dataset.shiftEnd + ';')) {
           _removeProvisionalShift(band.dataset.shiftDate, band.dataset.shiftMachine, band.dataset.shiftStart, band.dataset.shiftEnd);
         }
       }
@@ -863,7 +861,8 @@
       opt.value = m.id; opt.textContent = m.name + ' (φ. ' + m.phase + ')';
       els.shiftMachine.appendChild(opt);
     });
-    if (prefill && prefill.date)      els.shiftDate.value    = prefill.date;
+    DateFmt.bind(els.shiftDate);
+    if (prefill && prefill.date)      els.shiftDate.value    = DateFmt.isoToEu(prefill.date);
     if (prefill && prefill.machineId) els.shiftMachine.value = prefill.machineId;
     if (!els.shiftStart.value) els.shiftStart.value = '06:00';
     if (!els.shiftEnd.value)   els.shiftEnd.value   = '14:00';
@@ -876,12 +875,14 @@
     els.modalBackdrop.classList.remove('visible');
   }
 
+  function _shiftDateIso() { return DateFmt.euToIso(els.shiftDate.value); }
+
   function _saveProvisionalShift() {
-    var date  = els.shiftDate.value;
+    var date  = _shiftDateIso();
     var mach  = els.shiftMachine.value;
     var start = els.shiftStart.value;
     var end   = els.shiftEnd.value;
-    if (!date || !mach || !start || !end) { alert('Συμπληρώστε όλα τα πεδία'); return; }
+    if (!date || !mach || !start || !end) { alert('Συμπληρώστε όλα τα πεδία (ημερομηνία ηη/μμ/εεεε)'); return; }
     if (start >= end) { alert('Η ώρα έναρξης πρέπει να είναι πριν την ώρα λήξης'); return; }
 
     var newShift = {
@@ -1115,7 +1116,7 @@
     if (!draft || !draft.changes || !draft.changes.length) return;
     var when = new Date(draft.ts);
     if (!confirm('Βρέθηκε μη αποθηκευμένο πρόχειρο (' + draft.changes.length + ' αλλαγές, ' +
-                 when.toLocaleString('el-GR') + ').\nΕπαναφορά;')) {
+                 DateFmt.dt(when) + ').\nΕπαναφορά;')) {
       try { localStorage.removeItem(_draftKey()); } catch (e) {}
       return;
     }
@@ -1307,14 +1308,14 @@
     if (els.shiftProvBox)  els.shiftProvBox.hidden  = soft1;
   }
   function _prefillSoft1Checks() {
-    if (!els.shiftS[0] || !els.shiftDate.value || !els.shiftMachine.value) return;
+    if (!els.shiftS[0] || !_shiftDateIso() || !els.shiftMachine.value) return;
     var flags = _machineWeekFlags(els.shiftMachine.value);
-    var day = Math.round((new Date(els.shiftDate.value + 'T00:00:00') - state.weekStart) / 86400000);
+    var day = Math.round((new Date(_shiftDateIso() + 'T00:00:00') - state.weekStart) / 86400000);
     for (var k = 0; k < 3; k++) els.shiftS[k].checked = day >= 0 && day < 7 && !!flags[day * 3 + k];
   }
   async function _saveSoft1ShiftFromModal() {
-    var date = els.shiftDate.value, mach = els.shiftMachine.value;
-    if (!date || !mach) { alert('Συμπληρώστε ημερομηνία και μηχανή'); return; }
+    var date = _shiftDateIso(), mach = els.shiftMachine.value;
+    if (!date || !mach) { alert('Συμπληρώστε ημερομηνία (ηη/μμ/εεεε) και μηχανή'); return; }
     var day = Math.round((new Date(date + 'T00:00:00') - state.weekStart) / 86400000);
     if (day < 0 || day > 6) { alert('Η ημερομηνία πρέπει να είναι μέσα στην εμφανιζόμενη εβδομάδα'); return; }
     var want = els.shiftS.map(function (c) { return c.checked ? 1 : 0; });

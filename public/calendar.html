@@ -35,7 +35,7 @@
     </div>
     <div class="c-fill">
       Συμπλήρωση εβδομάδων που λείπουν έως
-      <input id="c-fill-to" type="date" />
+      <input id="c-fill-to" type="text" class="date-input" />
       <button id="c-fill" class="btn btn-banner btn-banner-sec" title="Δημιουργεί κάθε εβδομάδα που λείπει, αντιγράφοντας την προηγούμενη">Συμπλήρωση</button>
     </div>
     <div class="c-legend">Κλικ: βάρδια · κλικ σε μηχανή: όλη η εβδομάδα · κλικ σε ημέρα/βάρδια (κεφαλίδα): στήλη</div>
@@ -46,6 +46,7 @@
   <div id="toast"></div>
   <div id="loading-overlay"><div class="spinner"></div></div>
 
+  <script src="src/date-fmt.js"></script>
   <script src="src/soft1-bridge.js"></script>
   <script src="src/data-service.js"></script>
   <script src="src/calendar.js"></script>

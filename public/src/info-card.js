@@ -23,12 +23,11 @@
     if (!v) return '';
     var d = v instanceof Date ? v : new Date(String(v).replace(' ', 'T'));
     if (isNaN(d) || d.getFullYear() < 1990) return '';
-    return d.toLocaleDateString('el-GR');
+    return DateFmt.d(d);
   }
   function _dt(d) {
     if (!d) return '';
-    return d.toLocaleDateString('el-GR', { day: '2-digit', month: '2-digit' }) + ' ' +
-           d.toLocaleTimeString('el-GR', { hour: '2-digit', minute: '2-digit' });
+    return DateFmt.dt(d);
   }
 
   function close() { if (_card) { _card.remove(); _card = null; } }

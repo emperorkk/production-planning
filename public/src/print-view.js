@@ -11,7 +11,7 @@
   }
   function _pad(n) { return n < 10 ? '0' + n : String(n); }
   function _t(d) { return _pad(d.getHours()) + ':' + _pad(d.getMinutes()); }
-  function _d(d) { return _pad(d.getDate()) + '/' + _pad(d.getMonth() + 1); }
+  function _d(d) { return _pad(d.getDate()) + '/' + _pad(d.getMonth() + 1) + '/' + d.getFullYear(); }
 
   // Shift by start time: 06–14 → 1, 14–22 → 2, otherwise 3 (22–06 belongs to the previous day)
   function _shiftOf(d) {

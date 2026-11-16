@@ -25,8 +25,7 @@
     if (dirty() && !confirm('Υπάρχουν μη αποθηκευμένες αλλαγές στο ημερολόγιο. Συνέχεια;')) return;
     monday = weekStart(d);
     var end = new Date(monday); end.setDate(end.getDate() + 6);
-    $('c-week').textContent = pad(monday.getDate()) + '/' + pad(monday.getMonth() + 1) + ' – ' +
-                              pad(end.getDate()) + '/' + pad(end.getMonth() + 1) + '/' + end.getFullYear();
+    $('c-week').textContent = DateFmt.d(monday) + ' – ' + DateFmt.d(end);
     $('c-picker').value = iso(monday);
     $('c-back').href = 'production-planner.html';
     history.replaceState(null, '', 'calendar.html?week=' + iso(monday));
@@ -62,7 +61,7 @@
     var head2 = '<tr>';
     for (var d = 0; d < 7; d++) {
       var dd = new Date(monday); dd.setDate(dd.getDate() + d);
-      head1 += '<th colspan="3" class="c-day' + (d >= 5 ? ' we' : '') + '" data-day="' + d + '">' + DAYS[d] + ' ' + pad(dd.getDate()) + '/' + pad(dd.getMonth() + 1) + '</th>';
+      head1 += '<th colspan="3" class="c-day' + (d >= 5 ? ' we' : '') + '" data-day="' + d + '">' + DAYS[d] + ' ' + DateFmt.d(dd) + '</th>';
       for (var s = 0; s < 3; s++) head2 += '<th class="c-sh' + (s === 0 ? ' first' : '') + '" data-col="' + (d * 3 + s) + '">' + (s + 1) + '</th>';
     }
     head1 += '<th rowspan="2">Ώρες</th></tr>'; head2 += '</tr>';
@@ -133,13 +132,13 @@
   }
 
   async function fill() {
-    var to = $('c-fill-to').value;
-    if (!to) { toast('Επιλέξτε ημερομηνία', 'warn'); return; }
+    var to = DateFmt.euToIso($('c-fill-to').value);
+    if (!to) { toast('Δώστε ημερομηνία ηη/μμ/εεεε', 'warn'); return; }
     var toMon = weekStart(new Date(to + 'T00:00:00'));
     if (toMon < monday) { toast('Η ημερομηνία πρέπει να είναι μετά την τρέχουσα εβδομάδα', 'warn'); return; }
     var weeks = Math.round((toMon - monday) / 604800000) + 1;
     if (weeks > 27) { toast('Μέχρι 26 εβδομάδες τη φορά', 'warn'); return; }
-    if (!confirm('Δημιουργία όσων εβδομάδων λείπουν από ' + iso(monday) + ' έως ' + iso(toMon) + ' (' + weeks + ' εβδ.), με αντιγραφή της προηγούμενης;')) return;
+    if (!confirm('Δημιουργία όσων εβδομάδων λείπουν από ' + DateFmt.d(monday) + ' έως ' + DateFmt.d(toMon) + ' (' + weeks + ' εβδ.), με αντιγραφή της προηγούμενης;')) return;
     loading(true);
     try {
       var r = await DataService.calendar('fill', { from: iso(monday), to: iso(toMon) });
@@ -159,6 +158,7 @@
   $('c-create').addEventListener('click', function () { create('previous'); });
   $('c-create-empty').addEventListener('click', function () { create('none'); });
   $('c-fill').addEventListener('click', fill);
+  DateFmt.bind($('c-fill-to'));
   document.addEventListener('keydown', function (e) {
     var tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select') return;

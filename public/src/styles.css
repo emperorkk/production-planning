@@ -990,3 +990,6 @@ input, button, select, textarea {
 .info-card .mc-rolls th { text-align: left; color: #6b7280; font-weight: 600; border-bottom: 1px solid #e5e7eb; padding: 2px 4px; position: sticky; top: 0; background: #fff; }
 .info-card .mc-rolls td { padding: 2px 4px; border-bottom: 1px solid #f1f5f9; }
 .info-card .mc-rolls td.n { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* European date text inputs (DateFmt.bind) */
+.date-input.date-bad { border-color: #e74c3c !important; background: #fdecea; }

@@ -79,7 +79,7 @@
 
   function fmtDateShort(d) {
     var days = ['Κυρ','Δευ','Τρι','Τετ','Πεμ','Παρ','Σαβ'];
-    return days[d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1);
+    return days[d.getDay()] + ' ' + DateFmt.d(d);
   }
 
   // ── DOM refs ──────────────────────────────────────────────────────────────
