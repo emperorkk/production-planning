@@ -327,3 +327,9 @@ button.card:active { transform: scale(.995); }
 .sch-btns .icon-btn:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 .late { color: var(--accent-text); font-weight: 600; }
 [data-theme="dark"] .as-toast.success { color: #052e16; }
+
+/* Counters as filters (Τρέχουσες παραγωγές) */
+.kpi-btn { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; transition: border-color .15s, box-shadow .15s, transform .1s; }
+.kpi-btn:hover { border-color: var(--border-strong); }
+.kpi-btn:active { transform: scale(.985); }
+.kpi-btn.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }

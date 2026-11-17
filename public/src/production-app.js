@@ -279,17 +279,21 @@
       var n = { run: 0, setup: 0, stop: 0, none: 0 };
       entries.forEach(function (e) { n[e.cat]++; });
       var kg = Object.keys(today).reduce(function (s, k) { return s + today[k].kg; }, 0);
-      function kpi(label, val, color, extra) {
-        return '<div class="kpi' + (extra || '') + '"><div class="kpi-l">' +
+      // The four state counters are filter toggles (data-cat); kg today is display only
+      function kpi(label, val, color, extra, cat) {
+        var inner = '<div class="kpi-l">' +
           (color === 'live' ? '<span class="dot"></span>' : color ? '<span class="kpi-dot" style="background:' + color + '"></span>' : '') +
-          label + '</div><div class="kpi-v">' + val + '</div></div>';
+          label + '</div><div class="kpi-v">' + val + '</div>';
+        return cat ? '<button type="button" class="kpi kpi-btn' + (extra || '') + '" data-cat="' + cat + '" aria-pressed="false" title="Φίλτρο: ' + label + '">' + inner + '</button>'
+                   : '<div class="kpi' + (extra || '') + '">' + inner + '</div>';
       }
       $('running-kpis').innerHTML =
-        kpi('Σε παραγωγή', n.run + '<small>/ ' + entries.length + '</small>', 'live') +
-        kpi('Setup', n.setup, 'var(--warn)') +
-        kpi('Στάση', n.stop, 'var(--accent)', n.stop ? ' alert' : '') +
-        kpi('Χωρίς εργασία', n.none, 'var(--off)') +
+        kpi('Σε παραγωγή', n.run + '<small>/ ' + entries.length + '</small>', 'live', '', 'run') +
+        kpi('Setup', n.setup, 'var(--warn)', '', 'setup') +
+        kpi('Στάση', n.stop, 'var(--accent)', n.stop ? ' alert' : '', 'stop') +
+        kpi('Χωρίς εργασία', n.none, 'var(--off)', '', 'none') +
         kpi('Παραχθέντα σήμερα', num(kg) + '<small>kg</small>', '', ' wide');
+      paintRunningFilter();
       $('nav-count-running').textContent = (n.run + n.setup) || '';
       var ic = $('nav-count-idle'); ic.textContent = (n.stop + n.none) || ''; ic.classList.toggle('alert', n.stop > 0);
       $('pm-live-text').textContent = 'Live · ' + DateFmt.t(new Date());
@@ -299,13 +303,28 @@
     } finally { if (!silent) loading(false); }
   }
 
+  // Filter: all | busy | idle (segment) or a single state run | setup | stop | none (counter)
+  var FILTER_EMPTY = { idle: 'Όλες οι μηχανές δουλεύουν.', run: 'Καμία μηχανή σε παραγωγή.', setup: 'Καμία μηχανή σε setup.',
+                       stop: 'Καμία μηχανή σε στάση.', none: 'Όλες οι μηχανές έχουν εργασία.' };
+  function setRunningFilter(f) { state.runningFilter = f; paintRunningFilter(); renderRunning(); }
+  function paintRunningFilter() {
+    var f = state.runningFilter;
+    seg($('running-filter'), 'data-filter', f);              // no segment lit when a counter filter is active
+    document.querySelectorAll('#running-kpis [data-cat]').forEach(function (k) {
+      var on = k.getAttribute('data-cat') === f;
+      k.classList.toggle('on', on); k.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
   function renderRunning() {
     var f = state.runningFilter;
     var rows = (state.running || []).filter(function (e) {
       var busy = e.cat === 'run' || e.cat === 'setup';
-      return f === 'all' || (f === 'idle' ? !busy : busy);
+      if (f === 'all') return true;
+      if (f === 'busy') return busy;
+      if (f === 'idle') return !busy;
+      return e.cat === f;
     });
-    if (!rows.length) { $('running-list').innerHTML = empty(f === 'idle' ? 'Όλες οι μηχανές δουλεύουν.' : 'Καμία μηχανή.'); return; }
+    if (!rows.length) { $('running-list').innerHTML = empty(FILTER_EMPTY[f] || 'Καμία μηχανή.'); return; }
     $('running-list').innerHTML = byPhase(rows, function (e) { return e.phase; }).map(function (g) {
       var busy = g.rows.filter(function (e) { return e.cat === 'run'; }).length;
       var kg = g.rows.reduce(function (s, e) { return s + e.today.kg; }, 0);
@@ -869,7 +888,12 @@
     // Running filter
     $('running-filter').addEventListener('click', function (e) {
       var b = e.target.closest('button'); if (!b) return;
-      state.runningFilter = b.getAttribute('data-filter'); seg(this, 'data-filter', state.runningFilter); renderRunning();
+      setRunningFilter(b.getAttribute('data-filter'));
+    });
+    $('running-kpis').addEventListener('click', function (e) {
+      var k = e.target.closest('[data-cat]'); if (!k) return;
+      var cat = k.getAttribute('data-cat');
+      setRunningFilter(state.runningFilter === cat ? 'all' : cat);     // tap again = all machines
     });
 
     // Idle
