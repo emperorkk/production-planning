@@ -333,3 +333,10 @@ button.card:active { transform: scale(.995); }
 .kpi-btn:hover { border-color: var(--border-strong); }
 .kpi-btn:active { transform: scale(.985); }
 .kpi-btn.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+
+/* [i] Πώς υπολογίζεται */
+.info { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.info dt { font-weight: 650; font-size: 13.5px; margin-top: 12px; color: var(--text); }
+.info dt:first-child { margin-top: 0; }
+.info dd { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+.info dd b { color: var(--text); font-weight: 600; }
