@@ -998,3 +998,6 @@ input, button, select, textarea {
 .modal-backdrop-generic { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 99990; }
 .modal-backdrop-generic.visible { display: flex; }
 .pw-error { color: #b91c1c; font-size: 12px; min-height: 16px; margin-top: 8px; }
+
+/* One colour per production phase: dot in the Gantt phase header (same colour as the order cards) */
+.gantt-phase-group-header .phase-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 6px 0 2px; vertical-align: -1px; }

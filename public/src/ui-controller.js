@@ -433,7 +433,7 @@
 
     for (var i = 0; i < n; i++) {
       var order = list[i];
-      var color = GanttRenderer.orderColor(order.id);
+      var color = GanttRenderer.phaseColor(order.phase);     // one colour per production phase
       var hasDelivery = order.deliveryDate && order.deliveryDate.getFullYear() > 1970;
       var isOverdue   = hasDelivery && order.deliveryDate < now;
 

@@ -33,6 +33,26 @@
     return orderColorMap[orderId];
   }
 
+  // ── One fixed colour per production phase (order cards + phase headers) ──
+  var PHASE_COLORS = {
+    '900':  '#7f7f7f',   // Βοηθητική φάση
+    '1001': '#4e79a7',   // Εκτύπωση
+    '2001': '#f28e2b',   // Λαμινάρισμα
+    '2020': '#edc948',
+    '3001': '#59a14f',   // Ρολοκοπή
+    '4001': '#b07aa1',   // Σακουλοποίηση
+    '5001': '#9c755f',
+    '6001': '#76b7b2'
+  };
+  var _phaseColorExtra = {}, _phaseColorNext = 0;
+  var PHASE_FALLBACK = ['#e15759', '#17becf', '#bcbd22', '#9467bd', '#ff9da7', '#8c564b', '#2ca02c', '#d62728'];
+  function phaseColor(phase) {
+    var k = String(phase == null ? '' : phase);
+    if (PHASE_COLORS[k]) return PHASE_COLORS[k];
+    if (!_phaseColorExtra[k]) _phaseColorExtra[k] = PHASE_FALLBACK[_phaseColorNext++ % PHASE_FALLBACK.length];
+    return _phaseColorExtra[k];
+  }
+
   // ── Date / pixel helpers ──────────────────────────────────────────────────
   var WEEK_DAYS = 7;   // Mon–Sun, availability driven by per-machine shift programme
   function dayWidth() { return DAY_HOURS * pxPerHour; }
@@ -250,6 +270,7 @@
     totalWidth: totalWidth,
 
     orderColor: orderColor,
+    phaseColor: phaseColor,
     DAY_START_HOUR: DAY_START_HOUR,
     DAY_END_HOUR:   DAY_END_HOUR,
     LABEL_WIDTH:    LABEL_WIDTH,
@@ -319,7 +340,7 @@
       var label = (state.phaseNames && state.phaseNames[grpName])
         ? state.phaseNames[grpName] + '  (φάση ' + grpName + ')'
         : 'Φάση ' + grpName;
-      hdr.innerHTML = '&#9654; ' + _esc(label);
+      hdr.innerHTML = '&#9654; <span class="phase-dot" style="background:' + phaseColor(grpName) + '"></span>' + _esc(label);
       _bodyEl.appendChild(hdr);
 
       // Machine rows
