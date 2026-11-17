@@ -1,7 +1,7 @@
 # HANDOVER — Production Planning (Vlachos Bros)
 
 > Read this first. It contains everything a new chat session needs to pick up where the previous one left off.
-> **Current version: v0.9.0** (live on `main`, last updated 2026-11-17). Short rules for agents are in `CLAUDE.md`.
+> **Current version: v0.9.1** (live on `main`, last updated 2026-11-17). Short rules for agents are in `CLAUDE.md`.
 
 ---
 
@@ -242,6 +242,7 @@ Implementation notes:
 | 0.8.0 | **Διαχείριση παραγωγής** (`production.html`, mobile-first, burger menu, PWA install): running jobs, machine idle overview, production/customer order search, RSRC editing (setData). Shared app shell (switcher/🔑/Έξοδος). Access levels on login (1199 full / 1200 production-only), landing by device. Design system with light/dark/system theme (login + new app), phase-grouped overview with totals (`PmGetTodayProduction`), app icon from the Vlachos Bros mark |
 | 0.8.1 | Planner Excel: «Αρ. εντολής» (FINCODE) next to the order id (sheets Πρόγραμμα + Παραγγελίες); AJS orders select returns `fincode` |
 | 0.9.0 | Planner: **reserve machine (`FINDOC.BOOL01`) / lock production day (`BOOL02`)** via right-click (AJS `SetOrderLocks`, `/api/order-locks`; enforced in drag/drop, auto-place, unschedule and server-side in `SaveSchedule`); printing (1xxx) keeps its machine as the suggested one; auto-place continues into following weeks and creates missing calendars (after asking); order materials (`GetOrderMaterials`). Production app: state counters as filters, (i) «Πώς υπολογίζεται» per page, lock chips in Πρόγραμμα ημέρας |
+| 0.9.1 | Planner: order cards coloured per production phase (+ matching dot in the Gantt phase headers); STAGELINES confirmed |
 
 ### Status
 - ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
