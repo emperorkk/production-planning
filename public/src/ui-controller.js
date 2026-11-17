@@ -997,12 +997,14 @@
   }
 
   // ── Auto-place (shift-aware, earliest delivery first, fastest finish) ──────
+  var AUTO_AHEAD_WEEKS = 8;          // auto-place looks at most this many weeks after the visible one
   async function _autoPlace() {
     var candidates = _filteredUnscheduled();
     if (!candidates.length) { _toast('Δεν υπάρχουν μη προγραμματισμένες (με τα τρέχοντα φίλτρα)', 'warn'); return; }
     if (!confirm('Αυτόματη τοποθέτηση ' + candidates.length + ' παραγγελιών' +
                  (_filtersActive() || (els.orderSearch && els.orderSearch.value) ? ' (φιλτραρισμένες)' : '') +
-                 ' στις διαθέσιμες βάρδιες της εβδομάδας;\nΣειρά: νωρίτερη παράδοση πρώτα, μηχανή που τελειώνει νωρίτερα.' +
+                 ' στις διαθέσιμες βάρδιες της εβδομάδας;\nΌσες δεν χωράνε συνεχίζουν στις επόμενες εβδομάδες (έως ' + AUTO_AHEAD_WEEKS + ').' +
+                 '\nΣειρά: νωρίτερη παράδοση πρώτα, μηχανή που τελειώνει νωρίτερα.' +
                  (state.calendarExists ? '' : '\n\nΗ εβδομάδα δεν έχει ημερολόγιο βαρδιών — θα δημιουργηθεί στο Soft1 από την προηγούμενη εβδομάδα.'))) return;
 
     // No CCCFXPCAL week → create it from the last existing week first, then plan on its shifts
@@ -1031,8 +1033,81 @@
       weekStart: state.weekStart, weekEnd: weekEnd, minStart: minStart, chain: state._chain,
       workMinutes: function (o, m) { return DataService.computeWorkMinutes(o, m); }
     });
-    if (!placements.length) { _toast('Δεν βρέθηκαν διαθέσιμες θέσεις στις βάρδιες', 'warn'); return; }
     _pushHistory();
+    _applyPlacements(placements);
+    var perWeek = [{ label: 'αυτή την εβδομάδα', n: placements.length }];
+    var placedIds = {}; placements.forEach(function (p) { placedIds[p.order.id] = true; });
+    var leftovers = candidates.filter(function (o) { return !placedIds[o.id]; });
+
+    // What does not fit → the following weeks (their shifts + the orders already planned there).
+    // A week without a CCCFXPCAL calendar → ask once, then create it (and later ones) from the last existing week.
+    var created = [], stopReason = '';
+    if (leftovers.length) {
+      _showLoading(true);
+      var allShifts = state.shifts.slice(), createOk = null;
+      try {
+        for (var k = 1; k <= AUTO_AHEAD_WEEKS && leftovers.length; k++) {
+          var ws = new Date(state.weekStart); ws.setDate(ws.getDate() + 7 * k);
+          var we = new Date(ws); we.setDate(we.getDate() + 7);
+          var sun = new Date(ws); sun.setDate(sun.getDate() + 6);
+          var label = 'εβδ. ' + _isoWeekNo(ws) + ' (' + _fmtDateShort(ws) + '–' + _fmtDateShort(sun) + ')';
+          _setLoadingMsg('Αυτόματη τοποθέτηση: ' + label + '…');
+          var sh = await DataService.getShifts(ws, sun);
+          if (!sh.programmeRows) {
+            if (createOk === null) {
+              _showLoading(false);
+              var prevWk = new Date(ws); prevWk.setDate(prevWk.getDate() - 7);
+              createOk = confirm(leftovers.length + ' παραγγελίες δεν χωράνε έως την εβδομάδα ' + _isoWeekNo(prevWk) + '.\n\n' +
+                'Η ' + label.replace('εβδ. ', 'εβδομάδα ') + ' δεν έχει ημερολόγιο βαρδιών στο Soft1.\n' +
+                'Να δημιουργηθεί (και όσες ακόμα χρειαστούν) από την τελευταία εβδομάδα;');
+              _showLoading(true);
+            }
+            if (!createOk) { stopReason = 'δεν δημιουργήθηκε ημερολόγιο για την ' + label; break; }
+            var r = await DataService.calendar('create', { monday: _fmtDate(ws), copy: 'previous' });
+            if (r.success === false) { stopReason = 'αποτυχία δημιουργίας ημερολογίου ' + label + ': ' + (r.error || ''); break; }
+            created.push(String(r.code || _isoWeekNo(ws)));
+            sh = await DataService.getShifts(ws, sun);
+            if (!sh.programmeRows) { stopReason = 'το ημερολόγιο της ' + label + ' δεν έχει βάρδιες'; break; }
+          }
+          allShifts = allShifts.concat(sh);
+          WorkTime.build(allShifts);
+          // occupancy of that week: orders already planned there (not in the current view) + everything placed so far
+          var there = await DataService.getOrdersInWeek(ws, sun);
+          var occupancy = there.filter(function (o) { return !state.orderById[o.id]; }).concat(state.orders);
+          var pl = SchedulerEngine.autoPlace(leftovers, {
+            orders: occupancy, machines: state.machines, phaseMachines: state.phaseMachines,
+            weekStart: ws, weekEnd: we, minStart: now > ws ? now : ws, chain: state._chain,
+            workMinutes: function (o, m) { return DataService.computeWorkMinutes(o, m); }
+          });
+          _applyPlacements(pl);
+          if (pl.length) perWeek.push({ label: label, n: pl.length });
+          pl.forEach(function (p) { placedIds[p.order.id] = true; });
+          leftovers = leftovers.filter(function (o) { return !placedIds[o.id]; });
+        }
+        if (leftovers.length && !stopReason) stopReason = 'δεν χώρεσαν μέσα σε ' + AUTO_AHEAD_WEEKS + ' εβδομάδες';
+      } catch (e) {
+        stopReason = 'σφάλμα: ' + (e.message || e);
+      } finally {
+        _rebuildWorkTime();                        // back to the visible week only
+        _setLoadingMsg('');
+        _showLoading(false);
+      }
+    }
+
+    var total = Object.keys(placedIds).length;
+    if (!total) { _undo.pop(); _updateHistoryButtons && _updateHistoryButtons(); }
+    _rerender();
+    var msg = 'Τοποθετήθηκαν ' + total + ' από ' + candidates.length + ' παραγγελίες' +
+      (perWeek.length > 1 || perWeek[0].n !== total ? ': ' + perWeek.filter(function (w) { return w.n; })
+        .map(function (w) { return w.label + ' ' + w.n; }).join(', ') : '') +
+      (created.length ? '.\nΔημιουργήθηκαν ημερολόγια: ' + created.join(', ') : '') +
+      (leftovers.length ? '.\nΔεν τοποθετήθηκαν ' + leftovers.length + ' (' + stopReason + ').' : '.') +
+      (perWeek.length > 1 ? '\nΟι επόμενες εβδομάδες αποθηκεύονται με «Αποθήκευση»· δείτε τες με →.' : '');
+    if (perWeek.length > 1 || leftovers.length || created.length) Soft1Bridge.warn(msg);
+    else _toast(msg, total ? 'success' : 'warn');
+  }
+
+  function _applyPlacements(placements) {
     placements.forEach(function (p) {
       p.order.machineId    = p.machineId;
       p.order.plannedStart = p.plannedStart;
@@ -1042,8 +1117,13 @@
       p.order._userOverridden = false;
       _markChanged(p.order);
     });
-    _rerender();
-    _toast('Τοποθετήθηκαν ' + placements.length + ' από ' + candidates.length + ' παραγγελίες', 'success');
+  }
+
+  function _isoWeekNo(d) {
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day);
+    var y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - y0) / 86400000 + 1) / 7);
   }
 
   // ── Shift-aware span for an order on a machine ───────────────────────────
