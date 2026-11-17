@@ -16,6 +16,7 @@
  *   POST /api/save          → write schedule via Foxline.planning/SaveSchedule      (full access)
  *   POST /api/machine       → native Soft1 setData RSRC (Διαχείριση παραγωγής)
  *   POST /api/move          → move production orders in time (dates only) via SaveSchedule
+ *   POST /api/order-locks   → reserve machine (BOOL01) / lock day (BOOL02) via SetOrderLocks  (full access)
  *
  * Access levels (worker/access.js): 'full' (appId 1199) = planner + production app,
  * 'production' (appId 1200) = production app only. Planner pages are desktop-only.
@@ -26,6 +27,7 @@ import { handleData, handleSave }              from './routes/data.js';
 import { handleRecord }                        from './routes/record.js';
 import { handleCalendar }                      from './routes/calendar.js';
 import { handleMachineSave, handleMove }       from './routes/production.js';
+import { handleOrderLocks }                    from './routes/locks.js';
 import { getSession }                          from './session.js';
 import { sessionAccess, homeFor, isMobileRequest, PLANNER_PAGES, PRODUCTION_HOME } from './access.js';
 import { VERSION }                             from './version.js';
@@ -39,7 +41,7 @@ const PUBLIC_PATHS = new Set([
 ]);
 
 // Planner-only API (403 for access 'production')
-const PLANNER_API = new Set(['/api/save', '/api/calendar']);
+const PLANNER_API = new Set(['/api/save', '/api/calendar', '/api/order-locks']);
 
 export default {
   async fetch(request, env, ctx) {
@@ -68,6 +70,7 @@ export default {
       if (path === '/api/data')   return handleData(request, env);
       if (path === '/api/machine') return handleMachineSave(request, env);
       if (path === '/api/move')    return handleMove(request, env);
+      if (path === '/api/order-locks') return handleOrderLocks(request, env);
       if (path === '/api/record') return handleRecord(request, env);
       if (path === '/api/calendar') return handleCalendar(request, env);
       if (path === '/api/save')   return handleSave(request, env);

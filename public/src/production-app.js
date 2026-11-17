@@ -385,7 +385,8 @@
         return { id: String(r.id), fincode: r.fincode, machine: String(r.machine), itemCode: r.itemCode, itemName: r.itemName,
                  customer: r.customer, delivery: parseDate(r.deliveryDate), status: parseInt(r.status, 10), phase: r.phase,
                  kilos: r.kilos, start: parseDate(r.plannedStart), end: parseDate(r.plannedEnd),
-                 started: r.evStage != null && r.evStage !== '' };
+                 started: r.evStage != null && r.evStage !== '',
+                 machineLocked: flag(r.machineLock), dayLocked: flag(r.dayLock) };
       }).filter(function (j) { return j.start && j.end; });
       jobs.forEach(function (j) { j.locked = j.status === 1 ? 'Ολοκληρωμένη' : j.started ? 'Σε εξέλιξη' : ''; });
       var byMachine = {};
@@ -417,6 +418,9 @@
               '<div class="sch-time">' + esc(timeRange(j.start, j.end, day)) + '<span>' + esc(dur((j.end - j.start) / 60000)) + '</span></div>' +
               '<div class="job-top"><span class="code">' + esc(j.fincode) + '</span><span class="job-item">' + esc(j.itemCode) + ' · ' + esc(j.itemName) + '</span></div>' +
               '<div class="job-cust">' + esc(j.customer || '—') + (j.delivery ? ' · <span' + (isLate ? ' class="late"' : '') + '>παράδοση ' + esc(DateFmt.d(j.delivery)) + '</span>' : '') + '</div>' +
+              (j.machineLocked || j.dayLocked ? '<div class="chips" style="margin-top:6px">' +
+                (j.machineLocked ? '<span class="chip" title="Μπαίνει μόνο σε αυτή τη μηχανή">&#128205; Δεσμευμένη μηχανή</span>' : '') +
+                (j.dayLocked ? '<span class="chip" title="Κινείται μόνο μέσα στην ίδια ημέρα">&#128198; Κλειδωμένη ημέρα</span>' : '') + '</div>' : '') +
               (j.locked ? '<span class="pill ' + (j.status === 1 ? 'done' : 'run') + ' sch-lock">' + esc(j.locked) + '</span>' : '') +
             '</button>' +
             '<div class="sch-btns">' +
@@ -445,6 +449,10 @@
       { findoc: a.id, start: minuteStr(aStart), end: minuteStr(aEnd), origMachine: machineId, origStart: minuteStr(a.start), origEnd: minuteStr(a.end) }
     ];
     var moved = dir < 0 ? b : a;
+    // Day lock (FINDOC.BOOL02): a job may not leave its production day (06:00 → 06:00)
+    var pd = function (d) { return productionDay(d).getTime(); };
+    var bad = (b.dayLocked && pd(bStart) !== pd(b.start)) ? b : (a.dayLocked && pd(aStart) !== pd(a.start)) ? a : null;
+    if (bad) { toast('Κλειδωμένη ημέρα: η ' + bad.fincode + ' δεν μπορεί να αλλάξει ημέρα', 'error'); return; }
     _moving = true;
     document.querySelectorAll('#sch-list [data-mv]').forEach(function (x) { x.disabled = true; });
     loading(true);
@@ -1077,7 +1085,8 @@
                      itemCode: o ? o.itemCode : it[0], itemName: o ? o.itemName : it[1], customer: o ? o.customer : CUST[(mi + k) % 4],
                      deliveryDate: DateFmt.toIso(addDays(now, (k + mi) % 6 - 1)), kilos: 400 + k * 150, status: o ? o.status : 0,
                      phase: m.phase, start: new Date(t), end: new Date(t.getTime() + mins * 60000),
-                     evStage: o && events.some(function (e) { return e.findoc === o.id; }) ? m.phase : null });
+                     evStage: o && events.some(function (e) { return e.findoc === o.id; }) ? m.phase : null,
+                     machineLock: mi === 0 && k === 2 ? 1 : 0, dayLock: mi === 0 && k === 2 ? 1 : 0 });
         t = new Date(t.getTime() + (mins + 10) * 60000);
       }
     });

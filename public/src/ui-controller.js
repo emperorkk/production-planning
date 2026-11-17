@@ -449,7 +449,9 @@
       var kilosTxt  = (order.kilos || 0).toLocaleString() + ' κ.';
 
       var preTag = '';
-      if (order._origMachineId) {
+      if (order.machineLocked && order.machineId && state.machineById[order.machineId]) {
+        preTag = '<div class="card-pre" title="Δεσμευμένη μηχανή — μπαίνει μόνο εδώ">&#128205; ' + _esc(state.machineById[order.machineId].name) + ' (δεσμευμένη)</div>';
+      } else if (order._origMachineId) {
         var preMachine = state.machineById[order._origMachineId];
         if (preMachine) preTag = '<div class="card-pre">&#128204; ' + _esc(preMachine.name) + '</div>';
       }
@@ -561,6 +563,7 @@
           _toast('Η παραγγελία είναι κλειδωμένη — δεν αφαιρείται', 'error');
           return;
         }
+        if (_lockBlocksRemove(issue.order)) return;
         _pushHistory();
         issue.order.machineId    = null;
         issue.order.plannedStart = null;
@@ -580,6 +583,7 @@
       var order = state.orderById[data.drag.orderId];
       if (!order) return false;
       if (order.status === 1) return false;                                  // locked
+      if (order.machineLocked && order.machineId && data.machineId !== order.machineId) return false;   // reserved machine
       var eligible = state.phaseMachines[order.phase] || [];
       return eligible.indexOf(data.machineId) >= 0;
     });
@@ -609,6 +613,15 @@
       if (!order) return;
       if (order.status === 1) { _toast('Η παραγγελία είναι κλειδωμένη', 'error'); return; }
 
+      if (order.machineLocked && order.machineId && data.machineId !== order.machineId) {
+        var rm = state.machineById[order.machineId];
+        _toast('Δεσμευμένη μηχανή: η ' + order.id + ' μπαίνει μόνο στη ' + (rm ? rm.name : order.machineId), 'error');
+        return;
+      }
+      if (order.dayLocked && order.plannedStart && _prodDay(data.plannedStart) !== _prodDay(order.plannedStart)) {
+        _toast('Κλειδωμένη ημέρα: η ' + order.id + ' κινείται μόνο μέσα στην ' + _fmtDateShort(_prodDayDate(order.plannedStart)) + ' (06:00–06:00)', 'error');
+        return;
+      }
       var eligible = state.phaseMachines[order.phase] || [];
       if (eligible.indexOf(data.machineId) < 0) {
         _toast('Η μηχανή δεν ανήκει στη φάση ' + order.phase, 'error');
@@ -698,6 +711,11 @@
 
   function _showContextMenu(x, y, orderId) {
     els.contextMenu._ctx = { orderId: orderId };
+    var o = state.orderById[orderId], scheduled = !!(o && o.machineId && o.plannedStart);
+    var liM = els.contextMenu.querySelector('[data-action="lock-machine"]');
+    var liD = els.contextMenu.querySelector('[data-action="lock-day"]');
+    if (liM) { liM.hidden = !scheduled; liM.innerHTML = o && o.machineLocked ? '&#128205; Αποδέσμευση μηχανής' : '&#128205; Δέσμευση μηχανής'; }
+    if (liD) { liD.hidden = !scheduled; liD.innerHTML = o && o.dayLocked ? '&#128198; Ξεκλείδωμα ημέρας' : '&#128198; Κλείδωμα ημέρας'; }
     els.contextMenu.style.left = x + 'px';
     els.contextMenu.style.top  = y + 'px';
     els.contextMenu.classList.add('visible');
@@ -725,7 +743,9 @@
       _toast(order.id + (order._skipSetup ? ': χωρίς setup' : ': με setup'), 'success');
       return;
     }
+    if (action === 'lock-machine' || action === 'lock-day') { _toggleLock(order, action === 'lock-machine' ? 'machine' : 'day'); return; }
     if (action === 'remove') {
+      if (_lockBlocksRemove(order)) return;
       _pushHistory();
       order.machineId    = null;
       order.plannedStart = null;
@@ -1370,6 +1390,44 @@
     }
   }
   function _hm(t) { var p = String(t).split(':'); return (+p[0]) * 60 + (+p[1] || 0); }
+
+  // ── Locks: reserved machine (FINDOC.BOOL01) / locked production day (FINDOC.BOOL02) ──
+  // Production day = 06:00 → 06:00 (before 06:00 belongs to the previous day).
+  function _prodDayDate(d) { var x = new Date(d.getTime() - 6 * 3600000); x.setHours(0, 0, 0, 0); return x; }
+  function _prodDay(d) { return d ? _prodDayDate(d).getTime() : null; }
+  function _minuteStr(d) {
+    return d.getFullYear() + '-' + _pad(d.getMonth() + 1) + '-' + _pad(d.getDate()) + ' ' + _pad(d.getHours()) + ':' + _pad(d.getMinutes());
+  }
+  function _lockBlocksRemove(order) {
+    if (order.machineLocked) { _toast('Δεσμευμένη μηχανή — αποδεσμεύστε πρώτα (δεξί κλικ)', 'error'); return true; }
+    if (order.dayLocked)     { _toast('Κλειδωμένη ημέρα — ξεκλειδώστε πρώτα (δεξί κλικ)', 'error'); return true; }
+    return false;
+  }
+  // Toggle a lock; written to Soft1 immediately together with the order's current machine + dates
+  async function _toggleLock(order, kind) {
+    if (order.status === 1) return;
+    if (!order.machineId || !order.plannedStart || !order.plannedEnd) { _toast('Τοποθετήστε πρώτα την εντολή στο πρόγραμμα', 'warn'); return; }
+    var ml = order.machineLocked ? 1 : 0, dl = order.dayLocked ? 1 : 0;
+    if (kind === 'machine') ml = ml ? 0 : 1; else dl = dl ? 0 : 1;
+    var body = { findoc: order.id, machineLock: ml, dayLock: dl,
+                 start: _minuteStr(order.plannedStart), end: _minuteStr(order.plannedEnd) };
+    if (ml) body.machine = order.machineId;
+    try {
+      await Soft1Bridge.orderLocks(body);
+    } catch (e) { _toast('Αποτυχία: ' + (e.message || e), 'error'); return; }
+    order.machineLocked = !!ml;
+    order.dayLocked     = !!dl;
+    // dates (and the machine when reserving) are now in Soft1 → new baseline for this order
+    order._origStart = new Date(order.plannedStart);
+    order._origEnd   = new Date(order.plannedEnd);
+    if (ml) order._origMachineId = order.machineId;
+    _markChanged(order);
+    _rerender();
+    var mname = (state.machineById[order.machineId] || {}).name || order.machineId;
+    _toast(kind === 'machine'
+      ? (ml ? order.id + ': δεσμεύτηκε στη ' + mname : order.id + ': αποδεσμεύτηκε η μηχανή')
+      : (dl ? order.id + ': κλειδώθηκε στην ' + _fmtDateShort(_prodDayDate(order.plannedStart)) : order.id + ': ξεκλειδώθηκε η ημέρα'), 'success');
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function _markChanged(order, quiet) {

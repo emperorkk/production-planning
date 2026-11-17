@@ -35,7 +35,7 @@
     ],
     productionOrders: [
       { id:'ΠΕ-2401', description:'80398 Κιβώτιο Α', deliveryDate:_nextWeekDate(3), kilos:240, linearMetres:1500, status: 0, phase:'1001', machineId:null,    plannedStart:null, plannedEnd:null, mtrl:80398, salesOrderRef:'SO-501' },
-      { id:'ΠΕ-2402', description:'80399 Πλαίσιο Β', deliveryDate:_nextWeekDate(4), kilos:180, linearMetres: 900, status: 0, phase:'2001', machineId:'WLD-A', plannedStart:null, plannedEnd:null, mtrl:80399, salesOrderRef:'SO-501' },
+      { id:'ΠΕ-2402', description:'80399 Πλαίσιο Β', deliveryDate:_nextWeekDate(4), kilos:180, linearMetres: 900, status: 0, phase:'2001', machineId:'WLD-A', plannedStart:null, plannedEnd:null, mtrl:80399, salesOrderRef:'SO-501', machineLock:1 },
       { id:'ΠΕ-2403', description:'79728 Βάση Γ',    deliveryDate:_nextWeekDate(2), kilos:520, linearMetres:2400, status: 0, phase:'1001', machineId:null,    plannedStart:null, plannedEnd:null, mtrl:79728, salesOrderRef:'SO-502' },
       { id:'ΠΕ-2404', description:'80401 Στήριγμα Δ',deliveryDate:_nextWeekDate(5), kilos: 90, linearMetres: 600, status:-1, phase:'3001', machineId:null,    plannedStart:null, plannedEnd:null, mtrl:80401, salesOrderRef:'SO-503' },
       { id:'ΠΕ-2405', description:'80400 Καπάκι Ε',  deliveryDate:_nextWeekDate(1), kilos:320, linearMetres:1800, status: 0, phase:'4001', machineId:null,    plannedStart:null, plannedEnd:null, mtrl:80400, salesOrderRef:'SO-504' },
@@ -248,6 +248,20 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok && !data.errors) throw new Error(data.error || ('HTTP ' + res.status));
       return data;   // { ok, saved, skipped, conflicts, errors[] }
+    },
+
+    // Reserve machine (BOOL01) / lock production day (BOOL02) of one order via /api/order-locks.
+    // body: { findoc, machineLock: 0|1, dayLock: 0|1, machine?, start?, end? } ('YYYY-MM-DD HH:MM')
+    orderLocks: async function (body) {
+      if (MODE === 'mock') { console.log('[MOCK LOCKS]', body); return { ok: true, machineLock: body.machineLock, dayLock: body.dayLock }; }
+      const res = await fetch('/api/order-locks', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify(body)
+      });
+      if (res.status === 401) { window.location.replace('/login.html'); throw new Error('Session expired'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      return data;
     },
 
     // 'full' (planner + production app) | 'production' (production app only)

@@ -21,6 +21,9 @@
 //   GetOrderMaterials     findoc                  materials of one order (MTRLINES MTRTYPE 0, SODTYPE 51)
 //                                                 → { lineNum, mtrl, code, name, qty, unit }
 // Writes:
+//   SetOrderLocks         findoc, machineLock 0|1, dayLock 0|1, machine, start, end
+//                         BOOL01 = reserved machine (also writes CCCFXRSRC), BOOL02 = locked production day
+//                         (also writes DATE01/DATE02); SaveSchedule refuses moves that break a lock
 //   SaveSchedule          orders:[{findoc, machine|null, start|null, end|null,
 //                                  origMachine, origStart, origEnd}]   (orig* = values when loaded;
 //                                  if the DB changed since, the order is NOT written → conflict)
@@ -192,6 +195,8 @@ function _ordersBaseSelect()
         ", F.CCCFXRSRC AS machine" +
         ", L0.FINDOCS AS salesOrderRef" +
         ", L0.MTRL AS mtrl" +
+        ", F.BOOL01 AS machineLock" +
+        ", F.BOOL02 AS dayLock" +
         " FROM FINDOC F" +
         " INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
         " INNER JOIN MTRLINES L0 ON L0.FINDOC = F.FINDOC AND L0.MTRTYPE = 1" +
@@ -640,6 +645,49 @@ function FillMissingWeeks(Prms)
 // completed (MTRDOC.MTRSTS <> 1) are written. Everything else is reported.
 // ═══════════════════════════════════════════════════════════════════════════
 
+// 'YYYY-MM-DD HH:MM' → production day 'YYYY-MM-DD' (day starts 06:00); '' when empty/invalid
+function _productionDay(v)
+{
+ var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(v == null ? '' : v));
+ if (!m) return '';
+ var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) - 6 * 3600000);
+ return utcToIso(d);
+}
+
+// Reserve the machine (BOOL01) / lock the production day (BOOL02) of one order — written immediately.
+//   findoc, machineLock 0|1, dayLock 0|1, machine (int, required for machineLock 1),
+//   start, end ('YYYY-MM-DD HH:MM', required for dayLock 1; written with the lock so Soft1 holds the locked day)
+function SetOrderLocks(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isInt(Prms.findoc)) return responseError("findoc must be an integer");
+ var findoc = parseInt(Prms.findoc, 10);
+ var ml = String(Prms.machineLock) == '1' ? 1 : 0;
+ var dl = String(Prms.dayLock) == '1' ? 1 : 0;
+ var hasDates = Prms.start && Prms.end;
+ var dStart = hasDates ? dateToSql(Prms.start) : null;
+ var dEnd   = hasDates ? dateToSql(Prms.end)   : null;
+ if (dStart === false || dEnd === false) return responseError("Invalid date");
+ if (ml == 1 && !isInt(Prms.machine)) return responseError("machine is required to reserve");
+ if (dl == 1 && !hasDates) return responseError("start / end are required to lock the day");
+ try {
+   var ds = X.GETSQLDATASET("SELECT D.MTRSTS FROM FINDOC F INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
+     " WHERE F.FINDOC = " + findoc + " AND F.SOSOURCE = 5171 AND F.COMPANY = " + company(), null);
+   if (ds.RECORDCOUNT == 0) return responseError("Not found");
+   if (ds.MTRSTS == 1) return responseError("Η εντολή είναι ολοκληρωμένη");
+   X.RUNSQL("UPDATE FINDOC SET BOOL01 = " + ml + ", BOOL02 = " + dl +
+            (ml == 1 ? ", CCCFXRSRC = " + parseInt(Prms.machine, 10) : "") +
+            " WHERE FINDOC = " + findoc, null);
+   if (hasDates)
+     X.RUNSQL("UPDATE MTRLINES SET DATE01 = " + dStart + ", DATE02 = " + dEnd +
+              " WHERE FINDOC = " + findoc + " AND MTRTYPE = 1", null);
+ }
+ catch (e) { return responseError("SQL error: " + (e.message || e.description || e)); }
+ var resp = {};
+ resp.success = true; resp.findoc = findoc; resp.machineLock = ml; resp.dayLock = dl;
+ return resp;
+}
+
 function SaveSchedule(Prms)
 {
  if (!checkClientId(Prms)) return responseError();
@@ -667,11 +715,23 @@ function SaveSchedule(Prms)
 
    try {
      var ds = X.GETSQLDATASET(
-       "SELECT D.MTRSTS FROM FINDOC F INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
+       "SELECT D.MTRSTS, ISNULL(F.BOOL01, 0) AS ML, ISNULL(F.BOOL02, 0) AS DL" +
+       ", ISNULL(CONVERT(varchar(20), F.CCCFXRSRC), '') AS M" +
+       ", ISNULL(CONVERT(varchar(10), DATEADD(HOUR, -6, L.DATE01), 120), '') AS PD" +
+       " FROM FINDOC F INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
+       " LEFT OUTER JOIN MTRLINES L ON L.FINDOC = F.FINDOC AND L.MTRTYPE = 1" +
        " WHERE F.FINDOC = " + findoc + " AND F.SOSOURCE = 5171 AND F.COMPANY = " + company(), null);
 
      if (ds.RECORDCOUNT == 0) { resp.errors.push({ findoc: findoc, error: 'Not found' }); continue; }
      if (ds.MTRSTS == 1)      { resp.skipped++; continue; }    // completed → never written
+
+     // Locks (BOOL01 = reserved machine, BOOL02 = locked production day 06:00 → 06:00)
+     if (ds.ML == 1 && String(machine === null ? '' : machine) != String(ds.M)) {
+       resp.errors.push({ findoc: findoc, locked: true, error: 'Δεσμευμένη μηχανή — αποδεσμεύστε πρώτα' }); continue;
+     }
+     if (ds.DL == 1 && String(ds.PD) != '' && _productionDay(o.start) != String(ds.PD)) {
+       resp.errors.push({ findoc: findoc, locked: true, error: 'Κλειδωμένη ημέρα — η εντολή μένει στην ' + String(ds.PD).replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3/$2/$1') }); continue;
+     }
 
      // Optimistic lock: only when the caller sent the values it loaded (origMachine/origStart/origEnd)
      if (o.origMachine !== undefined || o.origStart !== undefined || o.origEnd !== undefined) {
@@ -755,6 +815,7 @@ function _pmOrderSelect()
         ", S.FINDOC AS salesOrderId, S.FINCODE AS salesOrder, S.VARCHAR01 AS customerPO" +
         ", (SELECT NAME FROM TRDR WHERE TRDR = S.TRDR) AS customer" +
         ", P.rolls, P.producedQty, P.lastRoll" +
+        ", F.BOOL01 AS machineLock, F.BOOL02 AS dayLock" +
         " FROM FINDOC F" +
         " INNER JOIN MTRDOC D ON D.FINDOC = F.FINDOC" +
         " INNER JOIN MTRLINES L0 ON L0.FINDOC = F.FINDOC AND L0.MTRTYPE = 1" +

@@ -160,7 +160,9 @@
       var placedEnd = {};                  // id -> end ms of orders placed in this run
 
       list.forEach(function (order) {
-        var eligible = (opts.phaseMachines[order.phase] || []).map(function (id) {
+        // Reserved machine (FINDOC.BOOL01) → only that machine; otherwise any machine of the phase
+        var ids = (order.machineLocked && order.machineId) ? [order.machineId] : (opts.phaseMachines[order.phase] || []);
+        var eligible = ids.map(function (id) {
           return opts.machines.filter(function (m) { return m.id === id; })[0];
         }).filter(Boolean);
         var earliest = +opts.minStart;

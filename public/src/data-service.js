@@ -63,6 +63,8 @@
         plannedEnd:    endD,
         mtrl:          r.mtrl || null,
         salesOrderRef: r.salesOrderRef || null,
+        machineLocked: _flag(r.machineLock),   // FINDOC.BOOL01 — reserved machine (only this machine)
+        dayLocked:     _flag(r.dayLock),       // FINDOC.BOOL02 — stays in its production day (06:00 → 06:00)
         _origMachineId: machineId ? String(machineId) : null,
         _origStart:     startD ? new Date(startD) : null,
         _origEnd:       endD   ? new Date(endD)   : null,

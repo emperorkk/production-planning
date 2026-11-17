@@ -169,6 +169,8 @@
         var lockBadge = locked ? '<span class="lock-icon" title="Ολοκληρωμένη — κλειδωμένη">&#128274;</span>' : '';
         var preBadge  = (!locked && order._origMachineId === order.machineId)
                           ? '<span class="pre-pin" title="Προ-ανατεθειμένη μηχανή">&#128204;</span>' : '';
+        if (order.machineLocked) preBadge = '<span class="pre-pin lock-machine" title="Δεσμευμένη μηχανή — μόνο σε αυτή τη μηχανή">&#128205;</span>';
+        if (order.dayLocked)     preBadge += '<span class="pre-pin lock-day" title="Κλειδωμένη ημέρα — κινείται μόνο μέσα στην ίδια ημέρα">&#128198;</span>';
         if (order._skipSetup) preBadge += '<span class="combo-badge" title="Συνδυασμός παραγωγής — χωρίς setup">&#9851;</span>';
         if (state._chainViol && state._chainViol[order.id])
           preBadge += '<span class="chain-badge" title="' + _esc(state._chainViol[order.id]) + '">&#8645;</span>';

@@ -172,7 +172,7 @@ Lines `MTRL, LINENUM, RAW1MTRL..RAW4MTRL, PRDMTRL, STAGE, PRDQTY1, PRDQTY2`. `PR
 UPDATE FINDOC   SET CCCFXRSRC = <int>|NULL WHERE FINDOC = <id>
 UPDATE MTRLINES SET DATE01 = DATEADD(MINUTE, n, 'YYYYMMDD')|NULL, DATE02 = … WHERE FINDOC = <id> AND MTRTYPE = 1
 ```
-Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload carries `origMachine/origStart/origEnd`; if the DB differs → not written, reported as conflict (order stays dirty).
+Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Order locks** (v0.9): `FINDOC.BOOL01 = 1` → reserved machine (SaveSchedule refuses another machine or unscheduling); `FINDOC.BOOL02 = 1` → locked production day 06:00→06:00 of the current DATE01 (refuses a start in another production day or unscheduling). **Optimistic lock:** the payload carries `origMachine/origStart/origEnd`; if the DB differs → not written, reported as conflict (order stays dirty).
 
 ---
 
@@ -192,6 +192,8 @@ Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Optimistic lock:** the payload
 | `GetMtrlTree` | — | 〃 |
 | `GetOrderDetails` | `findoc` | 〃 (fincode, item, customer, sales order, PO, delivery, qty, status, machine, remarks) |
 | `GetProduction` | `findocs` ('1,2,3', ≤1000) | per order `{id, rolls, producedQty, firstDate, lastDate, firstLot, lastLot}` |
+| `GetOrderMaterials` | `findoc` | materials of the order (`MTRLINES` MTRTYPE 0, SOSOURCE 5171, SODTYPE 51) `{lineNum, mtrl, code, name, qty, unit}` — planner order card + production app order sheet |
+| `SetOrderLocks` | `findoc`, `machineLock` 0/1, `dayLock` 0/1, `machine`, `start`, `end` | sets `FINDOC.BOOL01` (reserved machine; also writes CCCFXRSRC) / `BOOL02` (locked production day; also writes DATE01/02) — worker `/api/order-locks` (full access) |
 | `GetProductionRolls` | `findoc` | every roll `{fincode, trndate, qty, lot, mtrlot, whouse}` |
 | `SaveSchedule` | `orders:[{findoc, machine, start, end, origMachine, origStart, origEnd}]` (YYYY-MM-DD HH:MM) | `{ success, saved, skipped, conflicts, errors[] }` |
 | `GetCalendarWeek` | `monday` | `{ success, exists, header{id,code,wk}, data:[machine rows + S11..S73 + lineId] }` (all active machines, left-joined) |
@@ -270,6 +272,8 @@ Implementation notes:
 - Shift bands: click a gap → modal (**Soft1 shift 1/2/3** saved immediately, or provisional with times); right-click real shift → remove from Soft1; right-click provisional → remove.
 - Row bottom strip = daily load heatmap (green → amber → red, tooltip h/h); group «Χρησιμ.» row = max utilisation per day.
 - Issue panel: overlaps, deadline violations, phase-chain violations; click = jump, ✕ = unschedule.
+- **Locks** (right-click a scheduled block): «📍 Δέσμευση μηχανής» (BOOL01 — the order may only go on that machine: drag/drop, auto-place; unscheduled cards show «📍 machine (δεσμευμένη)») and «📆 Κλείδωμα ημέρας» (BOOL02 — moves only inside its production day 06:00→06:00; auto-place never moves scheduled orders). Both are written to Soft1 immediately with the order's current machine + dates; «Αφαίρεση» is refused while locked; SaveSchedule enforces the same rules server-side. Orders without a reserved machine may go on any machine of their phase.
+- Order card: **Υλικά εντολής** (GetOrderMaterials) above production.
 - Auto-place: on the **filtered** list; creates the calendar week first if missing; predecessors first, then earliest delivery; picks the machine that finishes earliest; respects shifts, now, predecessors, overlaps; undoable.
 - Save: one batched call; per-order failures/conflicts stay dirty with a message; success clears the draft + history.
 - Draft: autosaved to `localStorage` (`pp-draft:<user>:<monday>`); after load you're asked to restore.
