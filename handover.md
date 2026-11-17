@@ -1,7 +1,7 @@
 # HANDOVER — Production Planning (Vlachos Bros)
 
 > Read this first. It contains everything a new chat session needs to pick up where the previous one left off.
-> **Current version: v0.8.0** (live on `main`, last updated 2026-11-16). Short rules for agents are in `CLAUDE.md`.
+> **Current version: v0.8.1** (live on `main`, last updated 2026-11-17). Short rules for agents are in `CLAUDE.md`.
 
 ---
 
@@ -238,6 +238,7 @@ Implementation notes:
 | 0.6.0 | Auto-place creates the missing calendar week from the previous one before planning |
 | 0.7.0 | Change password (🔑 next to Έξοδος) via native Soft1 `changePassword` |
 | 0.8.0 | **Διαχείριση παραγωγής** (`production.html`, mobile-first, burger menu, PWA install): running jobs, machine idle overview, production/customer order search, RSRC editing (setData). Shared app shell (switcher/🔑/Έξοδος). Access levels on login (1199 full / 1200 production-only), landing by device. Design system with light/dark/system theme (login + new app), phase-grouped overview with totals (`PmGetTodayProduction`), app icon from the Vlachos Bros mark |
+| 0.8.1 | Planner Excel: «Αρ. εντολής» (FINCODE) next to the order id (sheets Πρόγραμμα + Παραγγελίες); AJS orders select returns `fincode` |
 
 ### Status
 - ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
