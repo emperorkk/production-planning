@@ -178,6 +178,7 @@ var SHIFT_FIELDS = ['S11','S12','S13','S21','S22','S23','S31','S32','S33','S41',
 function _ordersBaseSelect()
 {
  return "SELECT F.FINDOC AS id" +
+        ", F.FINCODE AS fincode" +
         ", M.CODE + ' ' + M.NAME AS description" +
         ", isnull(LS.DELIVDATE,L0.DELIVDATE) AS deliveryDate" +
         ", L0.QTY1 AS kilos" +

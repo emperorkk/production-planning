@@ -51,6 +51,7 @@
       var machineId = r.machine || r.machineId || null;
       out[i] = {
         id:            String(r.id),
+        fincode:       r.fincode != null ? String(r.fincode) : '',
         description:   String(r.description || ''),
         deliveryDate:  (r.deliveryDate instanceof Date) ? (_parseDate(r.deliveryDate)) : _parseDate(r.deliveryDate),
         kilos:         parseFloat(r.kilos)        || 0,

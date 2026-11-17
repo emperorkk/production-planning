@@ -249,7 +249,7 @@ Implementation notes:
 - No real-time collaboration (conflict check prevents silent overwrites only).
 - Provisional shifts live only in the browser session.
 - Shift times are constants until `STARTTIME/ENDTIME` columns exist.
-- Excel export is unstyled; print view is HTML (browser print).
+- Excel export is unstyled; print view is HTML (browser print). Sheets «Πρόγραμμα» and «Παραγγελίες» carry «Αρ. εντολής» (FINCODE, text) next to the order id.
 - Unscheduled panel renders max 500 cards (filter/search to narrow); no virtual scrolling.
 - If loading is still slow: the `ISNULL(LS.DELIVDATE,L0.DELIVDATE) >= GETDATE()-180` filter is non-sargable.
 

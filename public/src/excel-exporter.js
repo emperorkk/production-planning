@@ -40,7 +40,7 @@
       var wb = XLSX.utils.book_new();
 
       // ── Sheet 1: Schedule ────────────────────────────────────────────────
-      var schedRows = [['Παραγγελία','Περιγραφή','Φάση','Μηχανή','Ημ/νία Έναρξης','Ημ/νία Λήξης','Ώρες','Κιλά','Μέτρα','Sales Order','Κατάσταση']];
+      var schedRows = [['Παραγγελία','Αρ. εντολής','Περιγραφή','Φάση','Μηχανή','Ημ/νία Έναρξης','Ημ/νία Λήξης','Ώρες','Κιλά','Μέτρα','Sales Order','Κατάσταση']];
 
       var sortedOrders = state.orders.slice().sort(function (a, b) {
         if (a.plannedStart && b.plannedStart) return a.plannedStart - b.plannedStart;
@@ -56,7 +56,7 @@
                    : (o.machineId && o.plannedStart) ? 'Προγραμματισμένη'
                    : 'Μη προγραμματισμένη';
         schedRows.push([
-          o.id, o.description || '', ((state.phaseNames && state.phaseNames[o.phase]) ? state.phaseNames[o.phase] + ' (' + o.phase + ')' : o.phase),
+          o.id, o.fincode || '', o.description || '', ((state.phaseNames && state.phaseNames[o.phase]) ? state.phaseNames[o.phase] + ' (' + o.phase + ')' : o.phase),
           machine ? machine.name : (o.machineId || ''),
           _fmtCell(o.plannedStart),
           _fmtCell(o.plannedEnd),
@@ -69,7 +69,7 @@
       });
 
       var ws1 = XLSX.utils.aoa_to_sheet(schedRows);
-      ws1['!cols'] = [14,30,8,18,20,20,8,8,10,14,18].map(function (w) { return { wch: w }; });
+      ws1['!cols'] = [14,18,30,8,18,20,20,8,8,10,14,18].map(function (w) { return { wch: w }; });
       XLSX.utils.book_append_sheet(wb, ws1, 'Πρόγραμμα');
 
       // ── Sheet 2: Machine utilisation per day ─────────────────────────────
@@ -96,11 +96,11 @@
       XLSX.utils.book_append_sheet(wb, ws2, 'Χρησιμοποίηση');
 
       // ── Sheet 3: Orders summary ──────────────────────────────────────────
-      var orderRows = [['Παραγγελία','Περιγραφή','Φάση','Κιλά','Γρ. Μέτρα','Παράδοση','Sales Order','Κατάσταση','Μηχανή']];
+      var orderRows = [['Παραγγελία','Αρ. εντολής','Περιγραφή','Φάση','Κιλά','Γρ. Μέτρα','Παράδοση','Sales Order','Κατάσταση','Μηχανή']];
       state.orders.forEach(function (o) {
         var machine = state.machines.find(function (m) { return m.id === o.machineId; });
         orderRows.push([
-          o.id, o.description || '', ((state.phaseNames && state.phaseNames[o.phase]) ? state.phaseNames[o.phase] + ' (' + o.phase + ')' : o.phase),
+          o.id, o.fincode || '', o.description || '', ((state.phaseNames && state.phaseNames[o.phase]) ? state.phaseNames[o.phase] + ' (' + o.phase + ')' : o.phase),
           o.kilos || '', o.linearMetres || '',
           _fmtDateCell(o.deliveryDate),
           o.salesOrderRef || '',
@@ -111,7 +111,7 @@
         ]);
       });
       var ws3 = XLSX.utils.aoa_to_sheet(orderRows);
-      ws3['!cols'] = [14,30,8,8,10,14,14,18,18].map(function (w) { return { wch: w }; });
+      ws3['!cols'] = [14,18,30,8,8,10,14,14,18,18].map(function (w) { return { wch: w }; });
       XLSX.utils.book_append_sheet(wb, ws3, 'Παραγγελίες');
 
       // ── Download ─────────────────────────────────────────────────────────
