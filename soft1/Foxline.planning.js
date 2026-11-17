@@ -18,6 +18,8 @@
 //   GetProduction         findocs ('1,2,3', ≤1000) produced so far per order (CCCFXPRDOPRD: 1 row = 1 roll)
 //                                                 → { id, rolls, producedQty, firstDate, lastDate, firstLot, lastLot }
 //   GetProductionRolls    findoc                  every roll of one order → { fincode, trndate, qty, lot, mtrlot, whouse }
+//   GetOrderMaterials     findoc                  materials of one order (MTRLINES MTRTYPE 0, SODTYPE 51)
+//                                                 → { lineNum, mtrl, code, name, qty, unit }
 // Writes:
 //   SaveSchedule          orders:[{findoc, machine|null, start|null, end|null,
 //                                  origMachine, origStart, origEnd}]   (orig* = values when loaded;
@@ -379,6 +381,22 @@ function GetProductionRolls(Prms)
    " FROM CCCFXPRDOPRD P INNER JOIN FINDOC F ON F.FINDOC = P.FINDOC" +
    " WHERE F.COMPANY = " + company() + " AND P.FINDOC = " + parseInt(Prms.findoc, 10) +
    " ORDER BY P.TRNDATE, P.LOTCODE");
+}
+
+// Materials of one production order (raw-material lines of the order)
+function GetOrderMaterials(Prms)
+{
+ if (!checkClientId(Prms)) return responseError();
+ if (!isInt(Prms.findoc)) return responseError("findoc must be an integer");
+ return sqlRows(
+   "SELECT L.LINENUM AS lineNum, L.MTRL AS mtrl, M.CODE AS code, M.NAME AS name, L.QTY1 AS qty" +
+   ", (SELECT U.SHORTCUT FROM MTRUNIT U WHERE U.MTRUNIT = M.MTRUNIT1 AND U.COMPANY = M.COMPANY) AS unit" +
+   " FROM MTRLINES L" +
+   " INNER JOIN MTRL M ON M.MTRL = L.MTRL" +
+   " INNER JOIN FINDOC F ON F.FINDOC = L.FINDOC" +
+   " WHERE L.FINDOC = " + parseInt(Prms.findoc, 10) +
+   " AND L.MTRTYPE = 0 AND L.SOSOURCE = 5171 AND L.SODTYPE = 51 AND F.COMPANY = " + company() +
+   " ORDER BY L.LINENUM");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

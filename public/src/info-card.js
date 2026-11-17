@@ -152,7 +152,9 @@
       }
     }
 
-    var prodHtml = '<div class="mc-prod"><div class="mc-chain-h">Παραγωγή (ρολά / lots)</div>' +
+    var prodHtml = '<div class="mc-prod"><div class="mc-chain-h">Υλικά εντολής</div>' +
+                   '<div class="mc-mat-body mc-muted">Φόρτωση…</div></div>' +
+                   '<div class="mc-prod"><div class="mc-chain-h">Παραγωγή (ρολά / lots)</div>' +
                    '<div class="mc-prod-body mc-muted">Φόρτωση…</div></div>';
 
     return show(anchor, {
@@ -163,6 +165,20 @@
         var j = card.querySelector('[data-jump]');
         if (j) j.addEventListener('click', function () { close(); _ctx.onJump(o); });
         var seq = _reqSeq;
+        DataService.getOrderMaterials(orderId).then(function (mats) {
+          if (seq !== _reqSeq || !_card) return;
+          var box = card.querySelector('.mc-mat-body');
+          if (!mats || !mats.length) { box.textContent = 'Δεν υπάρχουν υλικά.'; return; }
+          box.className = 'mc-mat-body';
+          box.innerHTML = '<table class="mc-rolls"><thead><tr><th>Κωδικός</th><th>Υλικό</th><th>Ποσ.</th></tr></thead><tbody>' +
+            mats.map(function (m) {
+              return '<tr><td>' + _esc(m.code) + '</td><td>' + _esc(m.name) + '</td><td class="n">' + _esc(_num(m.qty)) +
+                     (m.unit ? ' ' + _esc(m.unit) : '') + '</td></tr>';
+            }).join('') + '</tbody></table>';
+        }).catch(function (e) {
+          if (seq !== _reqSeq || !_card) return;
+          card.querySelector('.mc-mat-body').textContent = 'Σφάλμα: ' + (e.message || e);
+        });
         DataService.getProductionRolls(orderId).then(function (rolls) {
           if (seq !== _reqSeq || !_card) return;
           var box = card.querySelector('.mc-prod-body');

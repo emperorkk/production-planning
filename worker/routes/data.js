@@ -19,7 +19,8 @@ const DATASETS = {
   GetMtrlTree:          [],
   GetOrderDetails:      ['findoc'],
   GetProduction:        ['findocs'],
-  GetProductionRolls:   ['findoc']
+  GetProductionRolls:   ['findoc'],
+  GetOrderMaterials:    ['findoc']
 };
 
 // «Διαχείριση παραγωγής» (production.html) datasets — allowed for both access levels.
@@ -39,7 +40,7 @@ const PRODUCTION_DATASETS = {
 
 // Planner datasets the production app may also read (access 'production').
 const SHARED_DATASETS = new Set(['GetMachines', 'GetPhaseMachines', 'GetShifts', 'GetOrderDetails',
-                                 'GetProduction', 'GetProductionRolls']);
+                                 'GetProduction', 'GetProductionRolls', 'GetOrderMaterials']);
 
 export async function handleData(request, env) {
   if (request.method !== 'POST') return json({ error: 'POST required' }, { status: 405 });

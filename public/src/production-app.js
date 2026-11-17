@@ -638,7 +638,8 @@
     openSheet('Εντολή παραγωγής', '', '<div class="empty">Φόρτωση…</div>');
     try {
       var res = await Promise.all([ds('GetOrderDetails', { findoc: id }), ds('GetProductionRolls', { findoc: id }),
-                                   ds('PmGetOrderStages', { findoc: id })]);
+                                   ds('PmGetOrderStages', { findoc: id }), ds('GetOrderMaterials', { findoc: id })]);
+      var mats = res[3] || [];
       var o = res[0][0];
       var stages = res[2].map(function (r) { return { t: parseDate(r.t), info: stageInfo(r.stage, r.line), operator: r.operator, minutes: r.minutes, remarks: r.remarks }; })
         .filter(function (r) { return r.t; });
@@ -661,6 +662,11 @@
           '<dt>Παραγγελία</dt><dd>' + esc(o.salesOrder || '—') + (o.customerPO ? ' · PO ' + esc(o.customerPO) : '') + '</dd>' +
           (o.remarks ? '<dt>Σχόλια</dt><dd>' + esc(o.remarks) + '</dd>' : '') +
         '</dl>' +
+        (mats.length ? '<div class="sheet-sec">Υλικά εντολής <span>' + mats.length + '</span></div>' +
+          '<table class="table"><thead><tr><th>Κωδικός</th><th>Υλικό</th><th class="num">Ποσ.</th></tr></thead><tbody>' +
+          mats.map(function (m) {
+            return '<tr><td class="mono">' + esc(m.code) + '</td><td>' + esc(m.name) + '</td><td class="num">' + num(m.qty, 1) + (m.unit ? ' ' + esc(m.unit) : '') + '</td></tr>';
+          }).join('') + '</tbody></table>' : '') +
         (stages.length ? '<div class="sheet-sec">Ιστορικό σταδίων <span>' + stages.length + '</span></div>' +
           '<table class="table"><thead><tr><th>Ώρα</th><th>Στάδιο</th><th>Χειριστής</th><th class="num">Διάρκεια</th></tr></thead><tbody>' +
           stages.map(function (r, i) {
@@ -1158,6 +1164,11 @@
           case 'GetOrderDetails': return orders.filter(function (o) { return String(o.id) === String(p.findoc); }).map(function (o) {
             return Object.assign({ remarks: 'Demo', customerItemCode: 'C-' + o.itemCode }, o);
           });
+          case 'GetOrderMaterials': {
+            var om = orders.filter(function (x) { return String(x.id) === String(p.findoc); })[0];
+            return om ? [{ lineNum: 1, code: '30006392', name: 'PP CAST MET LOW COF 30μ-840χιλ', qty: om.kilos * 0.95, unit: 'KG' },
+                         { lineNum: 2, code: 'PL262/CF60', name: 'Σύστημα Κόλλας PL262/CF60', qty: om.kilos * 0.08, unit: 'KG' }] : [];
+          }
           case 'GetProductionRolls': {
             var o = orders.filter(function (x) { return String(x.id) === String(p.findoc); })[0];
             var n = o ? o.rolls : 0, rows = [];

@@ -292,6 +292,17 @@
       return Soft1Bridge.dataset('GetProductionRolls', { findoc: parseInt(orderId, 10) });
     },
 
+    // Materials of one order (MTRLINES MTRTYPE 0) → [{ lineNum, mtrl, code, name, qty, unit }]
+    getOrderMaterials: async function (orderId) {
+      if (Soft1Bridge.isMock) {
+        var o = Soft1Bridge.mockData.productionOrders.filter(function (r) { return r.id === orderId; })[0];
+        if (!o) return [];
+        return [{ lineNum: 1, mtrl: 78061, code: '30006392', name: 'PP CAST MET LOW COF 30μ', qty: Math.round(o.kilos * 0.95 * 1000) / 1000, unit: 'KG' },
+                { lineNum: 2, mtrl: 33898, code: 'PL262/CF60', name: 'Σύστημα Κόλλας PL262/CF60', qty: Math.round(o.kilos * 0.08 * 1000) / 1000, unit: 'KG' }];
+      }
+      return Soft1Bridge.dataset('GetOrderMaterials', { findoc: parseInt(orderId, 10) });
+    },
+
     // ── Production calendar (CCCFXPCAL) ────────────────────────────────────
     calendar: function (action, body) { return Soft1Bridge.calendar(action, body || {}); },
 
