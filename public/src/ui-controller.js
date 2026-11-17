@@ -453,7 +453,9 @@
         preTag = '<div class="card-pre" title="Δεσμευμένη μηχανή — μπαίνει μόνο εδώ">&#128205; ' + _esc(state.machineById[order.machineId].name) + ' (δεσμευμένη)</div>';
       } else if (order._origMachineId) {
         var preMachine = state.machineById[order._origMachineId];
-        if (preMachine) preTag = '<div class="card-pre">&#128204; ' + _esc(preMachine.name) + '</div>';
+        if (preMachine) preTag = SchedulerEngine.isPrinting(order.phase)
+          ? '<div class="card-pre" title="Προτεινόμενη μηχανή — το Αυτόματο τη χρησιμοποιεί· μπορείτε να την αλλάξετε">&#128204; ' + _esc(preMachine.name) + ' (προτεινόμενη)</div>'
+          : '<div class="card-pre">&#128204; ' + _esc(preMachine.name) + '</div>';
       }
 
       card.innerHTML =
@@ -646,6 +648,11 @@
         return;
       }
 
+      var prefNote = '';
+      if (!order.machineLocked && SchedulerEngine.isPrinting(order.phase) && order._origMachineId &&
+          order._origMachineId !== data.machineId && state.machineById[order._origMachineId]) {
+        prefNote = ' — άλλαξε από την προτεινόμενη ' + state.machineById[order._origMachineId].name;
+      }
       _pushHistory();
       var keepOverride = order._userOverridden && order.machineId === data.machineId;
       order.machineId    = data.machineId;
@@ -666,9 +673,9 @@
                   (order._skipSetup ? ' (♻ συνδυασμός — χωρίς setup)' : ' (setup ' + br.setupMin + 'λ + παραγωγή ' +
                    Math.round(br.productionMin) + 'λ + αναμονή ' + br.waitMin + 'λ)');
         if (data.span && data.span.overflow) {
-          _toast(msg + ' — ⚠ ξεπερνά τις διαθέσιμες βάρδιες της εβδομάδας', 'warn');
+          _toast(msg + prefNote + ' — ⚠ ξεπερνά τις διαθέσιμες βάρδιες της εβδομάδας', 'warn');
         } else {
-          _toast(msg, 'success');
+          _toast(msg + prefNote, prefNote ? 'warn' : 'success');
         }
       }
     });

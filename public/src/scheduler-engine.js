@@ -129,6 +129,9 @@
       return out;
     },
 
+    // Printing phases (Εκτύπωση: 1xxx) keep their machine as the suggested one
+    isPrinting: function (phase) { return String(phase || '').charAt(0) === '1'; },
+
     // ── Smart auto-place (shift-aware) ────────────────────────────────────
     // Earliest delivery first; for each order the eligible machine that FINISHES earliest;
     // never before `minStart`, never before a predecessor's end, no overlaps, inside the week.
@@ -160,8 +163,11 @@
       var placedEnd = {};                  // id -> end ms of orders placed in this run
 
       list.forEach(function (order) {
-        // Reserved machine (FINDOC.BOOL01) → only that machine; otherwise any machine of the phase
-        var ids = (order.machineLocked && order.machineId) ? [order.machineId] : (opts.phaseMachines[order.phase] || []);
+        // Reserved machine (FINDOC.BOOL01) → only that machine. Printing (phase 1xxx) with a machine →
+        // that machine is the suggested one and auto-place uses only it (the user may still move it by hand).
+        // Otherwise any machine of the phase.
+        var pref = order.machineId && (order.machineLocked || SchedulerEngine.isPrinting(order.phase)) ? order.machineId : null;
+        var ids = pref ? [pref] : (opts.phaseMachines[order.phase] || []);
         var eligible = ids.map(function (id) {
           return opts.machines.filter(function (m) { return m.id === id; })[0];
         }).filter(Boolean);
