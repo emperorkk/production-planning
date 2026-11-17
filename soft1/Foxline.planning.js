@@ -834,7 +834,7 @@ function _pmOrderSelect()
 // with SOSTATUS 1 = setup, 2 = production/working, 3 = stopped; the stage's last line = completion.
 // (The app treats «Αναμονή Οδηγιών» as a stop although its SOSTATUS is 2 — user decision.)
 // The current state of a machine = its latest event (machine = FINDOC.CCCFXRSRC of the event's order).
-var STAGE_LINES_TABLE = 'STAGELINES';      // ← detail table of STAGE (confirm the name at Vlachos)
+var STAGE_LINES_TABLE = 'STAGELINES';      // detail table of STAGE (confirmed at Vlachos)
 
 function _operator(alias)
 {

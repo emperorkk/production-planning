@@ -201,7 +201,7 @@ Only `SOSOURCE=5171`, own company, `MTRSTS<>1`. **Order locks** (v0.9): `FINDOC.
 | `CreateCalendarWeek` | `monday`, `copy` ('previous'\|'none') | `{ success, id, code, copiedFrom }` |
 | `SaveCalendarWeek` | `monday`, `lines:[{rsrc, s:'21×0/1'}]` | `{ success, updated, inserted, errors[] }` |
 | `FillMissingWeeks` | `from`, `to` (Mondays, ≤26 weeks) | `{ success, created[], skipped[], errors[] }` |
-| `PmGetStageLines` | — | stage detail lines `{stage, line, name, sostatus, isLast}` (table `STAGE_LINES_TABLE` in the AJS — confirm name) |
+| `PmGetStageLines` | — | stage detail lines `{stage, line, name, sostatus, isLast}` (table `STAGELINES`, constant `STAGE_LINES_TABLE` in the AJS — confirmed) |
 | `PmGetMachineNow` | — | active machines + latest `CCCFXPRDOSTAGE` event (≤14 d) + that order's progress |
 | `PmGetStageEvents` | `day` | stage events per machine for the production day (+ last event before it per machine) |
 | `PmGetDaySchedule` | `day` | orders with a machine whose DATE01–DATE02 overlaps the production day + latest stage event (lock) |
@@ -245,7 +245,7 @@ Implementation notes:
 
 ### Status
 - ✅ Worker live at vbpp.onecode.win; login works against Vlachos Soft1; data loads (user reported speed + encoding issues → fixed).
-- ✅ AJS deployed by the user (at least the dataset version). **The user must paste the latest `soft1/Foxline.planning.js` (v0.9.0: Pm* functions, GetOrderMaterials, SetOrderLocks, lock checks in SaveSchedule)** — and confirm `STAGE_LINES_TABLE` (stage detail table name, placeholder `STAGELINES`).
+- ✅ AJS deployed by the user (at least the dataset version). **The user must paste the latest `soft1/Foxline.planning.js` (v0.9.0: Pm* functions, GetOrderMaterials, SetOrderLocks, lock checks in SaveSchedule)**. `STAGE_LINES_TABLE = 'STAGELINES'` is confirmed.
 - ⚠️ **Not yet verified on real Soft1:** `CreateCalendarWeek` / `SaveCalendarWeek` / `FillMissingWeeks` (object insert + date pin — check a created week opens normally in Soft1), `GetOrderDetails` columns (`F.REMARKS`, `S.VARCHAR01`), `RSRC` LOCATEINFO fields in `worker/routes/record.js`, whether `ds.JSON` keeps alias case and its datetime format.
 
 ### Known limitations / future work
